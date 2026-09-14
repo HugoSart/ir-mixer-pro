@@ -1172,6 +1172,7 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "egui-lucide",
+ "egui_extras",
  "egui_kittest",
  "serde",
 ]

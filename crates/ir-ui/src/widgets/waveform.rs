@@ -2,11 +2,19 @@ use egui::{Align2, Color32, Response, Sense, Stroke, Ui, Vec2, Widget, pos2, vec
 
 use crate::{DesignSystem, TextRole};
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum WaveformRenderMode {
+    #[default]
+    Signed,
+    Symmetric,
+}
+
 pub struct WaveformView<'a> {
     samples: &'a [f32],
     color: Color32,
     size: Vec2,
     label: Option<&'a str>,
+    render_mode: WaveformRenderMode,
 }
 
 impl<'a> WaveformView<'a> {
@@ -16,6 +24,7 @@ impl<'a> WaveformView<'a> {
             color,
             size: vec2(180.0, 64.0),
             label: None,
+            render_mode: WaveformRenderMode::Signed,
         }
     }
 
@@ -26,6 +35,11 @@ impl<'a> WaveformView<'a> {
 
     pub fn label(mut self, label: &'a str) -> Self {
         self.label = Some(label);
+        self
+    }
+
+    pub fn render_mode(mut self, render_mode: WaveformRenderMode) -> Self {
+        self.render_mode = render_mode;
         self
     }
 }
@@ -61,18 +75,42 @@ impl Widget for WaveformView<'_> {
             );
         } else {
             let columns = content.width().max(1.0) as usize;
-            let points = (0..columns).map(|column| {
-                let index = column * self.samples.len() / columns;
-                let sample = self.samples[index.min(self.samples.len() - 1)].clamp(-1.0, 1.0);
-                let x = content.left()
-                    + column as f32 / columns.saturating_sub(1).max(1) as f32 * content.width();
-                let y = content.center().y - sample * content.height() * 0.45;
-                pos2(x, y)
-            });
-            ui.painter().add(egui::Shape::line(
-                points.collect(),
-                Stroke::new(1.5, self.color),
-            ));
+            match self.render_mode {
+                WaveformRenderMode::Signed => {
+                    let points = (0..columns).map(|column| {
+                        let index = column * self.samples.len() / columns;
+                        let sample =
+                            self.samples[index.min(self.samples.len() - 1)].clamp(-1.0, 1.0);
+                        let x = content.left()
+                            + column as f32 / columns.saturating_sub(1).max(1) as f32
+                                * content.width();
+                        let y = content.center().y - sample * content.height() * 0.45;
+                        pos2(x, y)
+                    });
+                    ui.painter().add(egui::Shape::line(
+                        points.collect(),
+                        Stroke::new(1.5, self.color),
+                    ));
+                }
+                WaveformRenderMode::Symmetric => {
+                    for (column, amplitude) in symmetric_envelope(self.samples, columns)
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let x = content.left()
+                            + column as f32 / columns.saturating_sub(1).max(1) as f32
+                                * content.width();
+                        let extent = amplitude * content.height() * 0.45;
+                        ui.painter().line_segment(
+                            [
+                                pos2(x, content.center().y - extent),
+                                pos2(x, content.center().y + extent),
+                            ],
+                            Stroke::new(1.5, self.color),
+                        );
+                    }
+                }
+            }
         }
 
         if let Some(label) = self.label {
@@ -86,6 +124,25 @@ impl Widget for WaveformView<'_> {
         }
         response
     }
+}
+
+fn symmetric_envelope(samples: &[f32], columns: usize) -> Vec<f32> {
+    if samples.is_empty() || columns == 0 {
+        return Vec::new();
+    }
+
+    (0..columns)
+        .map(|column| {
+            let start = column * samples.len() / columns;
+            let end = ((column + 1) * samples.len() / columns)
+                .max(start + 1)
+                .min(samples.len());
+            samples[start..end]
+                .iter()
+                .map(|sample| sample.abs().clamp(0.0, 1.0))
+                .fold(0.0_f32, f32::max)
+        })
+        .collect()
 }
 
 pub struct GraphFrame<'a> {
@@ -251,5 +308,20 @@ mod tests {
             deterministic_waveform(1.0, 64)
         );
         assert_ne!(deterministic_curve(1.0, 64), deterministic_curve(2.0, 64));
+    }
+
+    #[test]
+    fn waveform_defaults_to_signed_rendering() {
+        assert_eq!(WaveformRenderMode::default(), WaveformRenderMode::Signed);
+    }
+
+    #[test]
+    fn symmetric_envelope_uses_peak_magnitude_per_column() {
+        assert_eq!(
+            symmetric_envelope(&[-0.2, 0.8, -1.4, 0.3], 2),
+            vec![0.8, 1.0]
+        );
+        assert!(symmetric_envelope(&[], 4).is_empty());
+        assert!(symmetric_envelope(&[0.5], 0).is_empty());
     }
 }

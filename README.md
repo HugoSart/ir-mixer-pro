@@ -19,7 +19,9 @@ cargo run -p ir-ui-gallery
 ```
 
 The gallery is the executable reference for colors, typography, buttons,
-toggles, value controls, waveforms, meters, graphs, and component states.
+checkboxes, dropdown and list selectors, toggles, value controls, waveforms,
+meters, graphs, and component states. Its icon-only actions include both
+outlined and borderless variants.
 
 Running plain `cargo run` starts the root placeholder binary in `src/main.rs`,
 not the component gallery.

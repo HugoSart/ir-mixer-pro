@@ -142,10 +142,34 @@ floating menus: black at 28% opacity, blur 16, vertical offset 6.
 Tooltips are required for icon-only actions. Keyboard focus order follows visual
 order. Custom widgets must expose useful labels through egui/AccessKit.
 
+### 5.1 Selection controls
+
+- Segmented controls use the standard control radius only on the outside edge of
+  the group. Corners touching another segment are square, and separators do not
+  introduce spacing between segments.
+- Checkboxes use a solid application-accent background and visible checkmark when
+  checked. They may hide their visible text label in compact layouts, but must
+  retain that label for tooltips and accessibility.
+- Dropdown selectors may be unlabeled, labeled on the left, or labeled above.
+  These arrangements share identical field and popup styling.
+- List selectors are single-select, always-visible collections of flat, text-only
+  rows inside one bordered container. Each row contains a key and value. Keys are
+  left-aligned; every value begins after the widest rendered key plus a 12-point
+  gap. Rows have no individual border, radius, or spacing. Selection changes may
+  be guarded before commit so application workflows can defer a change while
+  requesting confirmation.
+- Icon-only buttons have either an outlined control frame or a borderless ghost
+  treatment. Ghost buttons gain a visible frame on hover or press. Every
+  icon-only button requires a tooltip and accessibility label.
+
 ## 6. Audio Visuals
 
 - Waveforms use their IR identity color over `surface.inset`, with a subtle center
   line and no glow wider than two pixels.
+- Waveform thumbnails and timelines use a symmetric magnitude envelope mirrored
+  around the centerline. Polarity-sensitive analysis uses the signed sample trace.
+  `WaveformView` defaults to signed rendering, so thumbnail callers must select
+  the symmetric render mode explicitly.
 - Graphs use `border.subtle` for the minor grid, `border.control` for major axes,
   and `text.secondary` for labels. Selected or combined traces are two pixels;
   other traces are one pixel.

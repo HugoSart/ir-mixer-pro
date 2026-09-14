@@ -9,4 +9,5 @@ egui-lucide.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+egui_extras.workspace = true
 egui_kittest.workspace = true

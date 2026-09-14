@@ -1,4 +1,4 @@
-use egui::{Button, Color32, Response, RichText, Stroke, Ui, Vec2, Widget};
+use egui::{Button, Color32, CornerRadius, Response, RichText, Stroke, Ui, Vec2, Widget};
 use egui_lucide::Lucide;
 
 use crate::{DesignSystem, TextRole};
@@ -19,6 +19,7 @@ pub struct ActionButton<'a> {
     enabled: bool,
     tooltip: Option<&'a str>,
     min_width: f32,
+    corner_radius: Option<CornerRadius>,
 }
 
 impl<'a> ActionButton<'a> {
@@ -31,6 +32,7 @@ impl<'a> ActionButton<'a> {
             enabled: true,
             tooltip: None,
             min_width: 0.0,
+            corner_radius: None,
         }
     }
 
@@ -63,6 +65,11 @@ impl<'a> ActionButton<'a> {
         self.min_width = width;
         self
     }
+
+    pub fn corner_radius(mut self, corner_radius: CornerRadius) -> Self {
+        self.corner_radius = Some(corner_radius);
+        self
+    }
 }
 
 impl Widget for ActionButton<'_> {
@@ -90,7 +97,10 @@ impl Widget for ActionButton<'_> {
             Button::new(label)
         }
         .min_size(Vec2::new(self.min_width, ds.metrics.control_height))
-        .corner_radius(ds.metrics.radius_control)
+        .corner_radius(
+            self.corner_radius
+                .unwrap_or_else(|| CornerRadius::same(ds.metrics.radius_control)),
+        )
         .selected(self.selected);
 
         let response = ui
@@ -118,6 +128,86 @@ impl Widget for ActionButton<'_> {
         } else {
             response
         }
+    }
+}
+
+pub struct IconButton<'a> {
+    icon: Lucide,
+    tooltip: &'a str,
+    kind: ButtonKind,
+    selected: bool,
+    enabled: bool,
+}
+
+impl<'a> IconButton<'a> {
+    pub fn new(icon: Lucide, tooltip: &'a str) -> Self {
+        Self {
+            icon,
+            tooltip,
+            kind: ButtonKind::Secondary,
+            selected: false,
+            enabled: true,
+        }
+    }
+
+    pub fn kind(mut self, kind: ButtonKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl Widget for IconButton<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let ds = DesignSystem::default();
+        let c = ds.colors;
+        let active = self.selected || self.kind == ButtonKind::Primary;
+        let foreground = if active {
+            c.text_on_accent
+        } else {
+            c.text_primary
+        };
+        let image = self
+            .icon
+            .color(foreground)
+            .size(ds.metrics.icon_default)
+            .stroke_width(1.8)
+            .image()
+            .alt_text(self.tooltip);
+        let button = Button::image(image)
+            .min_size(Vec2::splat(ds.metrics.control_height))
+            .corner_radius(ds.metrics.radius_control)
+            .selected(self.selected);
+
+        ui.scope(|ui| {
+            let visuals = ui.visuals_mut();
+            if active {
+                visuals.widgets.inactive.weak_bg_fill = c.accent;
+                visuals.widgets.inactive.bg_fill = c.accent;
+                visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, c.accent);
+                visuals.widgets.hovered.weak_bg_fill = c.accent_hover;
+                visuals.widgets.hovered.bg_fill = c.accent_hover;
+                visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, c.accent_hover);
+                visuals.widgets.active.weak_bg_fill = c.accent_pressed;
+                visuals.widgets.active.bg_fill = c.accent_pressed;
+            } else if self.kind == ButtonKind::Ghost {
+                visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+                visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+                visuals.widgets.inactive.bg_stroke = Stroke::NONE;
+            }
+            ui.add_enabled(self.enabled, button)
+        })
+        .inner
+        .on_hover_text(self.tooltip)
     }
 }
 
@@ -200,11 +290,15 @@ impl Widget for SegmentedControl<'_> {
         let mut combined: Option<Response> = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
+            let last = self.labels.len().saturating_sub(1);
+            let radius = DesignSystem::default().metrics.radius_control;
             for (index, label) in self.labels.iter().enumerate() {
+                let corner_radius = segmented_corner_radius(index, last + 1, radius);
                 let response = ui.add(
                     ActionButton::new(label)
                         .selected(*self.selected == index)
-                        .min_width(104.0),
+                        .min_width(104.0)
+                        .corner_radius(corner_radius),
                 );
                 if response.clicked() {
                     *self.selected = index;
@@ -216,6 +310,26 @@ impl Widget for SegmentedControl<'_> {
             }
         });
         combined.unwrap_or_else(|| ui.allocate_response(Vec2::ZERO, egui::Sense::hover()))
+    }
+}
+
+fn segmented_corner_radius(index: usize, len: usize, radius: u8) -> CornerRadius {
+    match (index, len) {
+        (_, 0) => CornerRadius::ZERO,
+        (_, 1) => CornerRadius::same(radius),
+        (0, _) => CornerRadius {
+            nw: radius,
+            ne: 0,
+            sw: radius,
+            se: 0,
+        },
+        (index, len) if index + 1 == len => CornerRadius {
+            nw: 0,
+            ne: radius,
+            sw: 0,
+            se: radius,
+        },
+        _ => CornerRadius::ZERO,
     }
 }
 
@@ -239,4 +353,38 @@ pub fn section_header(ui: &mut Ui, number: u8, title: &str) {
                 .color(ds.colors.text_primary),
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::segmented_corner_radius;
+    use egui::CornerRadius;
+
+    #[test]
+    fn segmented_control_rounds_only_exterior_corners() {
+        let radius = 4;
+        assert_eq!(
+            segmented_corner_radius(0, 1, radius),
+            CornerRadius::same(radius)
+        );
+        assert_eq!(
+            segmented_corner_radius(0, 3, radius),
+            CornerRadius {
+                nw: radius,
+                ne: 0,
+                sw: radius,
+                se: 0,
+            }
+        );
+        assert_eq!(segmented_corner_radius(1, 3, radius), CornerRadius::ZERO);
+        assert_eq!(
+            segmented_corner_radius(2, 3, radius),
+            CornerRadius {
+                nw: 0,
+                ne: radius,
+                sw: 0,
+                se: radius,
+            }
+        );
+    }
 }

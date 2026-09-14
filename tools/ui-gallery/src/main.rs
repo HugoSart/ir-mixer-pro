@@ -1,9 +1,10 @@
 use egui::{Color32, RichText, ScrollArea, Stroke, Vec2, vec2};
 use egui_lucide::Lucide;
 use ir_ui::widgets::{
-    ActionButton, AudioKnob, ButtonKind, ChannelToggle, DbValueEditor, GraphFrame, LevelMeter,
-    MiniFader, PanKnob, SampleDelayEditor, SegmentedControl, WaveformView, deterministic_curve,
-    deterministic_waveform, section_header,
+    ActionButton, AudioKnob, ButtonKind, ChannelToggle, Checkbox, DbValueEditor, DropdownSelector,
+    GraphFrame, IconButton, LevelMeter, ListSelector, ListSelectorItem, MiniFader, PanKnob,
+    SampleDelayEditor, SegmentedControl, SelectorLabelPosition, WaveformRenderMode, WaveformView,
+    deterministic_curve, deterministic_waveform, section_header,
 };
 use ir_ui::{DesignSystem, IR_COLORS, TextRole};
 use nice_plug_egui::{App, EguiWindow, EguiWindowSettings, Frame, baseview::dpi::LogicalSize};
@@ -32,6 +33,7 @@ enum GalleryPage {
     #[default]
     Foundations,
     Buttons,
+    Selectors,
     Values,
     AudioVisuals,
 }
@@ -42,6 +44,14 @@ struct GalleryApp {
     muted: bool,
     soloed: bool,
     polarity: bool,
+    normalize: bool,
+    limit_output: bool,
+    unlabeled_checkbox: bool,
+    dropdown_plain: usize,
+    dropdown_left: usize,
+    dropdown_top: usize,
+    list_selection: usize,
+    selection_feedback: String,
     gain_db: f32,
     output_db: f32,
     delay_samples: i32,
@@ -59,6 +69,14 @@ impl Default for GalleryApp {
             muted: true,
             soloed: false,
             polarity: false,
+            normalize: true,
+            limit_output: false,
+            unlabeled_checkbox: true,
+            dropdown_plain: 0,
+            dropdown_left: 1,
+            dropdown_top: 2,
+            list_selection: 0,
+            selection_feedback: "Choose a preset. The third row is guarded.".into(),
             gain_db: -7.0,
             output_db: -2.0,
             delay_samples: 7,
@@ -109,6 +127,7 @@ impl App for GalleryApp {
                     .show(ui, |ui| match self.page {
                         GalleryPage::Foundations => self.foundations(ui),
                         GalleryPage::Buttons => self.buttons(ui),
+                        GalleryPage::Selectors => self.selectors(ui),
                         GalleryPage::Values => self.values(ui),
                         GalleryPage::AudioVisuals => self.audio_visuals(ui),
                     });
@@ -143,6 +162,7 @@ impl GalleryApp {
                 Lucide::SlidersHorizontal,
                 "Value controls",
             ),
+            (GalleryPage::Selectors, Lucide::ListFilter, "Selectors"),
             (
                 GalleryPage::AudioVisuals,
                 Lucide::AudioLines,
@@ -287,7 +307,7 @@ impl GalleryApp {
             section_header(ui, 2, "Selection");
             ui.add_space(12.0);
             ui.add(SegmentedControl::new(
-                &["Preview File", "Live Input"],
+                &["Dry", "Selected IR", "Full Mix"],
                 &mut self.source_mode,
             ));
         });
@@ -316,6 +336,117 @@ impl GalleryApp {
                     "Invert polarity",
                 ));
             });
+        });
+
+        ui.add_space(12.0);
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 4, "Checkboxes");
+            ui.add_space(12.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.add(Checkbox::new(&mut self.normalize, "Normalize"));
+                ui.add(Checkbox::new(&mut self.limit_output, "Limit output"));
+                ui.add_enabled(false, Checkbox::new(&mut self.limit_output, "Disabled"));
+                ui.add(
+                    Checkbox::new(&mut self.unlabeled_checkbox, "Unlabeled checkbox")
+                        .show_label(false),
+                );
+            });
+        });
+
+        ui.add_space(12.0);
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 5, "Icon-only actions");
+            ui.add_space(12.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.add(IconButton::new(Lucide::FolderOpen, "Browse files"));
+                ui.add(IconButton::new(Lucide::Settings, "Open settings").kind(ButtonKind::Ghost));
+                ui.add(
+                    IconButton::new(Lucide::Pin, "Pinned")
+                        .kind(ButtonKind::Ghost)
+                        .selected(true),
+                );
+                ui.add(
+                    IconButton::new(Lucide::Trash2, "Remove")
+                        .kind(ButtonKind::Ghost)
+                        .enabled(false),
+                );
+            });
+        });
+    }
+
+    fn selectors(&mut self, ui: &mut egui::Ui) {
+        let ds = DesignSystem::default();
+        Self::page_title(
+            ui,
+            "Selectors",
+            "Dropdown label arrangements and always-visible single-selection lists.",
+        );
+        let devices = ["System Default", "Interface 1-2", "Loopback 1-2"];
+
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 1, "Dropdown selectors");
+            ui.add_space(12.0);
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Without label")
+                            .font(TextRole::Metadata.font_id())
+                            .color(ds.colors.text_secondary),
+                    );
+                    ui.add(DropdownSelector::new(
+                        "gallery_dropdown_plain",
+                        &devices,
+                        &mut self.dropdown_plain,
+                    ));
+                });
+                ui.add_space(24.0);
+                ui.add(
+                    DropdownSelector::new(
+                        "gallery_dropdown_left",
+                        &devices,
+                        &mut self.dropdown_left,
+                    )
+                    .label("Input", SelectorLabelPosition::Left),
+                );
+                ui.add_space(24.0);
+                ui.add(
+                    DropdownSelector::new("gallery_dropdown_top", &devices, &mut self.dropdown_top)
+                        .label("Output device", SelectorLabelPosition::Top),
+                );
+            });
+        });
+
+        ui.add_space(12.0);
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 2, "List selector with selection guard");
+            ui.add_space(12.0);
+            let items = [
+                ListSelectorItem::new("01", "90-10 Close+Room"),
+                ListSelectorItem::new("02", "Tight Modern"),
+                ListSelectorItem::new("100", "Unsaved Experiment"),
+                ListSelectorItem::new("04", "Empty Template"),
+            ];
+            let feedback = &mut self.selection_feedback;
+            let mut guard = |_: usize, proposed: usize| {
+                if proposed == 2 {
+                    *feedback =
+                        "Selection blocked: this is where an unsaved-changes dialog can open."
+                            .into();
+                    false
+                } else {
+                    *feedback = format!("Selection changed to {}.", items[proposed].value);
+                    true
+                }
+            };
+            ui.add(
+                ListSelector::new(&items, &mut self.list_selection).on_before_change(&mut guard),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(&self.selection_feedback)
+                    .font(TextRole::Metadata.font_id())
+                    .color(ds.colors.text_secondary),
+            );
         });
     }
 
@@ -380,11 +511,35 @@ impl GalleryApp {
             "Deterministic waveform, meter, graph, and non-happy-path states.",
         );
         ds.panel_frame().show(ui, |ui| {
-            section_header(ui, 1, "Waveform identity");
+            section_header(ui, 1, "Waveform render modes");
+            ui.add_space(12.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.add(
+                    WaveformView::new(&self.waveforms[0], IR_COLORS[0])
+                        .size(vec2(320.0, 100.0))
+                        .label("Signed")
+                        .render_mode(WaveformRenderMode::Signed),
+                );
+                ui.add(
+                    WaveformView::new(&self.waveforms[0], IR_COLORS[0])
+                        .size(vec2(320.0, 100.0))
+                        .label("Symmetric magnitude")
+                        .render_mode(WaveformRenderMode::Symmetric),
+                );
+            });
+        });
+
+        ui.add_space(12.0);
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 2, "Symmetric IR thumbnails");
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
                 for (index, (waveform, color)) in self.waveforms.iter().zip(IR_COLORS).enumerate() {
-                    ui.add(WaveformView::new(waveform, color).label(&format!("IR {}", index + 1)));
+                    ui.add(
+                        WaveformView::new(waveform, color)
+                            .label(&format!("IR {}", index + 1))
+                            .render_mode(WaveformRenderMode::Symmetric),
+                    );
                 }
             });
         });
@@ -392,7 +547,7 @@ impl GalleryApp {
         ui.add_space(12.0);
         ui.horizontal_top(|ui| {
             ds.panel_frame().show(ui, |ui| {
-                section_header(ui, 2, "Meter");
+                section_header(ui, 3, "Meter");
                 ui.add_space(12.0);
                 let time = ui.input(|input| input.time) as f32;
                 let levels = [-10.0 + time.sin() * 4.0, -12.0 + (time * 1.17).sin() * 5.0];
@@ -402,7 +557,7 @@ impl GalleryApp {
             });
 
             ds.panel_frame().show(ui, |ui| {
-                section_header(ui, 3, "Frequency graph frame");
+                section_header(ui, 4, "Frequency graph frame");
                 ui.add_space(12.0);
                 let curves = self
                     .curves
@@ -416,7 +571,7 @@ impl GalleryApp {
 
         ui.add_space(12.0);
         ds.panel_frame().show(ui, |ui| {
-            section_header(ui, 4, "Empty, loading, and error");
+            section_header(ui, 5, "Empty, loading, and error");
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
                 state_card(
