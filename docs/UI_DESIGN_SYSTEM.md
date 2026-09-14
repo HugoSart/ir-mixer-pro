@@ -202,10 +202,12 @@ in the same change.
 Composed cards live in `ir_ui::components`. `CardFrame` owns shared chrome and
 offers body and header-action closures, primary/inset variants, optional numbered
 headers, width, and minimum height. Width includes padding and borders.
-`InputSourceCard` consumes a borrowed view and returns typed actions; the caller
-owns selection, transport, and side effects. Give each card instance a stable ID.
-Input Source supports widths of 280 points and above (300 by default).
-The Cards gallery applies these actions to independent dummy Preview/Live states.
+`InputSourceCard`, `OutputCard`, and `ExportMixedIrCard` consume borrowed views
+and return typed actions; the caller owns selections, transport, and side effects.
+Give each card instance a stable ID. Cards support widths of 280 points and above
+(300 by default). The Cards gallery applies these actions to independent dummy
+states. In particular, choosing an output device, choosing an export destination,
+and exporting are intentions only; the components never access devices or files.
 
 Run the native Storybook-style gallery with:
 

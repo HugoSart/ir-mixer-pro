@@ -43,6 +43,8 @@ enum GalleryPage {
 struct GalleryApp {
     preview_card: cards::CardsDemo,
     live_card: cards::CardsDemo,
+    output_card: cards::OutputDemo,
+    export_card: cards::ExportDemo,
     page: GalleryPage,
     source_mode: usize,
     muted: bool,
@@ -70,6 +72,8 @@ impl Default for GalleryApp {
         Self {
             preview_card: cards::CardsDemo::default(),
             live_card: cards::CardsDemo::live(),
+            output_card: cards::OutputDemo::default(),
+            export_card: cards::ExportDemo::default(),
             page: GalleryPage::Foundations,
             source_mode: 0,
             muted: true,
@@ -133,11 +137,17 @@ impl App for GalleryApp {
                     .show(ui, |ui| match self.page {
                         GalleryPage::Foundations => self.foundations(ui),
                         GalleryPage::Cards => {
-                            Self::page_title(ui, "Cards", "Input Source · interactive dummy data; Browse cycles example filenames.");
+                            Self::page_title(ui, "Cards", "Interactive dummy Input Source, Output, and Export controls; no real devices or files.");
                             ui.horizontal_wrapped(|ui| {
                                 ui.vertical(|ui| { ui.set_width(320.0); self.preview_card.show(ui, "preview_card"); });
                                 ui.add_space(16.0);
                                 ui.vertical(|ui| { ui.set_width(320.0); self.live_card.show(ui, "live_card"); });
+                            });
+                            ui.add_space(16.0);
+                            ui.horizontal_wrapped(|ui| {
+                                ui.vertical(|ui| { ui.set_width(320.0); self.output_card.show(ui); });
+                                ui.add_space(16.0);
+                                ui.vertical(|ui| { ui.set_width(320.0); self.export_card.show(ui); });
                             });
                         },
                         GalleryPage::Buttons => self.buttons(ui),
