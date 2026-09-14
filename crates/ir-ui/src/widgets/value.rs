@@ -12,6 +12,7 @@ pub struct AudioKnob<'a> {
     suffix: &'a str,
     accent: Color32,
     formatter: fn(f32, &str) -> String,
+    small: bool,
 }
 
 impl<'a> AudioKnob<'a> {
@@ -25,11 +26,18 @@ impl<'a> AudioKnob<'a> {
             suffix: "",
             accent: DesignSystem::default().colors.accent,
             formatter: format_value,
+            small: false,
         }
     }
 
     pub fn default_value(mut self, value: f32) -> Self {
         self.default = value;
+        self
+    }
+
+    /// Compact rack knob with its value above the dial.
+    pub fn small(mut self, small: bool) -> Self {
+        self.small = small;
         self
     }
 
@@ -52,7 +60,11 @@ impl<'a> AudioKnob<'a> {
 impl Widget for AudioKnob<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let ds = DesignSystem::default();
-        let size = vec2(64.0, 88.0);
+        let size = if self.small {
+            vec2(40.0, 48.0)
+        } else {
+            vec2(64.0, 88.0)
+        };
         let (rect, mut response) = ui.allocate_exact_size(size, Sense::click_and_drag());
         response = response.on_hover_text(format!(
             "Drag to adjust · Shift for fine adjustment · Double-click to reset to {:.1}{}",
@@ -81,8 +93,11 @@ impl Widget for AudioKnob<'_> {
             egui::WidgetInfo::slider(ui.is_enabled(), *self.value as f64, self.label)
         });
 
-        let center = pos2(rect.center().x, rect.top() + 29.0);
-        let radius = 22.0;
+        let center = pos2(
+            rect.center().x,
+            rect.top() + if self.small { 32.0 } else { 29.0 },
+        );
+        let radius = if self.small { 12.0 } else { 22.0 };
         let start = PI * 0.75;
         let sweep = PI * 1.5;
         let normalized = ((*self.value - *self.range.start())
@@ -113,20 +128,33 @@ impl Widget for AudioKnob<'_> {
         painter.line_segment(
             [
                 center + vec2(angle.cos(), angle.sin()) * 7.0,
-                center + vec2(angle.cos(), angle.sin()) * 17.0,
+                center + vec2(angle.cos(), angle.sin()) * radius * 0.77,
             ],
             Stroke::new(2.0, ds.colors.text_primary),
         );
+        if !self.small {
+            painter.text(
+                pos2(rect.center().x, rect.bottom() - 25.0),
+                Align2::CENTER_CENTER,
+                self.label,
+                TextRole::Metadata.font_id(),
+                ds.colors.text_secondary,
+            );
+        }
         painter.text(
-            pos2(rect.center().x, rect.bottom() - 25.0),
-            Align2::CENTER_CENTER,
-            self.label,
-            TextRole::Metadata.font_id(),
-            ds.colors.text_secondary,
-        );
-        painter.text(
-            pos2(rect.center().x, rect.bottom() - 5.0),
-            Align2::CENTER_BOTTOM,
+            pos2(
+                rect.center().x,
+                if self.small {
+                    rect.top()
+                } else {
+                    rect.bottom() - 5.0
+                },
+            ),
+            if self.small {
+                Align2::CENTER_TOP
+            } else {
+                Align2::CENTER_BOTTOM
+            },
             (self.formatter)(*self.value, self.suffix),
             TextRole::ControlLabel.font_id(),
             ds.colors.text_primary,
@@ -138,6 +166,10 @@ impl Widget for AudioKnob<'_> {
 pub struct PanKnob<'a>(AudioKnob<'a>);
 
 impl<'a> PanKnob<'a> {
+    pub fn small(mut self, small: bool) -> Self {
+        self.0 = self.0.small(small);
+        self
+    }
     pub fn new(value: &'a mut f32) -> Self {
         Self(
             AudioKnob::new(value, -1.0..=1.0, "Pan")

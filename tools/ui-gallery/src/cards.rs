@@ -1,4 +1,5 @@
 use ir_ui::components::*;
+use ir_ui::{IR_COLORS, widgets::deterministic_waveform};
 
 pub struct CardsDemo {
     mode: SourceMode,
@@ -110,6 +111,169 @@ impl CardsDemo {
             }
         }
         ui.label(egui::RichText::new(&self.last_action).small());
+    }
+}
+
+struct DummyIrSlot {
+    id: u64,
+    filename: String,
+    waveform: Vec<f32>,
+    color_index: usize,
+    enabled: bool,
+    gain_db: f32,
+    delay_samples: i32,
+    pan: f32,
+    polarity_inverted: bool,
+    normalize: bool,
+    soloed: bool,
+    muted: bool,
+}
+
+pub struct IrRackDemo {
+    slots: Vec<DummyIrSlot>,
+    next_id: u64,
+    last_action: String,
+}
+
+impl Default for IrRackDemo {
+    fn default() -> Self {
+        Self {
+            slots: vec![
+                dummy_slot(1, "York_Mix01.wav", -3.0, 0, 0.0, true),
+                dummy_slot(2, "York_Room.wav", -12.0, 6, 0.1, true),
+                dummy_slot(3, "V30_57.wav", -6.0, 0, -0.1, true),
+                dummy_slot(4, "Greenback_121.wav", -8.0, 0, 0.0, false),
+                dummy_slot(5, "421_Rear.wav", -18.0, 15, 0.0, false),
+                dummy_slot(6, "Room_Far.wav", -20.0, 0, 0.0, false),
+            ],
+            next_id: 7,
+            last_action: "Six dummy IR slots are available for review.".into(),
+        }
+    }
+}
+
+impl IrRackDemo {
+    pub fn show(&mut self, ui: &mut egui::Ui, width: f32) {
+        let views = self
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| IrRackSlotView {
+                id: slot.id,
+                number: index + 1,
+                filename: &slot.filename,
+                metadata: "48.0 kHz | 24-bit | 2048 samples",
+                waveform: &slot.waveform,
+                color: IR_COLORS[slot.color_index % IR_COLORS.len()],
+                enabled: slot.enabled,
+                gain_db: slot.gain_db,
+                delay_samples: slot.delay_samples,
+                sample_rate: 48_000.0,
+                pan: slot.pan,
+                polarity_inverted: slot.polarity_inverted,
+                normalize: slot.normalize,
+                soloed: slot.soloed,
+                muted: slot.muted,
+            })
+            .collect::<Vec<_>>();
+        let view = IrRackCardView { slots: &views };
+        for action in IrRackCard::new("ir_rack_card", &view)
+            .width(width)
+            .rack_height(360.0)
+            .show(ui)
+            .inner
+        {
+            self.last_action = format!("{action:?}");
+            self.apply(action);
+        }
+        ui.label(egui::RichText::new(&self.last_action).small());
+    }
+
+    fn apply(&mut self, action: IrRackAction) {
+        match action {
+            IrRackAction::AddIr => {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.slots.push(dummy_slot(
+                    id,
+                    &format!("New_IR_{id:02}.wav"),
+                    -9.0,
+                    0,
+                    0.0,
+                    true,
+                ));
+            }
+            IrRackAction::ClearAll => self.slots.clear(),
+            IrRackAction::NormalizeAll => {
+                for slot in &mut self.slots {
+                    slot.normalize = true;
+                }
+            }
+            IrRackAction::Remove { id } => self.slots.retain(|slot| slot.id != id),
+            IrRackAction::Browse { id } => with_slot(&mut self.slots, id, |slot| {
+                slot.filename = if slot.filename.ends_with("_alt.wav") {
+                    slot.filename.trim_end_matches("_alt.wav").to_owned() + ".wav"
+                } else {
+                    slot.filename.trim_end_matches(".wav").to_owned() + "_alt.wav"
+                };
+            }),
+            IrRackAction::SetEnabled { id, enabled } => {
+                with_slot(&mut self.slots, id, |slot| slot.enabled = enabled)
+            }
+            IrRackAction::SetGainDb { id, gain_db } => {
+                with_slot(&mut self.slots, id, |slot| slot.gain_db = gain_db)
+            }
+            IrRackAction::SetDelaySamples { id, delay_samples } => {
+                with_slot(&mut self.slots, id, |slot| {
+                    slot.delay_samples = delay_samples
+                })
+            }
+            IrRackAction::SetPan { id, pan } => {
+                with_slot(&mut self.slots, id, |slot| slot.pan = pan)
+            }
+            IrRackAction::SetPolarity { id, inverted } => with_slot(&mut self.slots, id, |slot| {
+                slot.polarity_inverted = inverted
+            }),
+            IrRackAction::SetNormalize { id, normalize } => {
+                with_slot(&mut self.slots, id, |slot| slot.normalize = normalize)
+            }
+            IrRackAction::SetSolo { id, soloed } => {
+                with_slot(&mut self.slots, id, |slot| slot.soloed = soloed)
+            }
+            IrRackAction::SetMute { id, muted } => {
+                with_slot(&mut self.slots, id, |slot| slot.muted = muted)
+            }
+        }
+    }
+}
+
+fn dummy_slot(
+    id: u64,
+    filename: &str,
+    gain_db: f32,
+    delay_samples: i32,
+    pan: f32,
+    enabled: bool,
+) -> DummyIrSlot {
+    DummyIrSlot {
+        id,
+        filename: filename.into(),
+        waveform: deterministic_waveform(id as f32 * 0.73, 256),
+        color_index: (id as usize - 1) % IR_COLORS.len(),
+        enabled,
+        gain_db,
+        delay_samples,
+        pan,
+        polarity_inverted: false,
+        normalize: id < 3,
+        soloed: false,
+        muted: false,
+    }
+}
+
+fn with_slot(slots: &mut [DummyIrSlot], id: u64, update: impl FnOnce(&mut DummyIrSlot)) {
+    if let Some(slot) = slots.iter_mut().find(|slot| slot.id == id) {
+        update(slot);
     }
 }
 

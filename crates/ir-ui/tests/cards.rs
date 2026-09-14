@@ -208,3 +208,105 @@ fn output_and_export_snapshots() {
     }
     results.unwrap();
 }
+
+struct IrRackState {
+    actions: Vec<IrRackAction>,
+    initialized: bool,
+}
+
+fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
+    Harness::builder()
+        .with_size(egui::vec2(960.0, 680.0))
+        .with_pixels_per_point(scale)
+        .build_ui_state(
+            |ui, state| {
+                if !state.initialized {
+                    ir_ui::install(ui.ctx());
+                    egui_extras::install_image_loaders(ui.ctx());
+                    state.initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+
+                let waveform_a = ir_ui::widgets::deterministic_waveform(0.4, 256);
+                let waveform_b = ir_ui::widgets::deterministic_waveform(1.2, 256);
+                let slots = [
+                    IrRackSlotView {
+                        id: 1,
+                        number: 1,
+                        filename: "York_Mix01.wav",
+                        metadata: "48.0 kHz | 24-bit | 2048 samples",
+                        waveform: &waveform_a,
+                        color: ir_ui::IR_COLORS[0],
+                        enabled: true,
+                        gain_db: -3.0,
+                        delay_samples: 0,
+                        sample_rate: 48_000.0,
+                        pan: 0.0,
+                        polarity_inverted: false,
+                        normalize: true,
+                        soloed: false,
+                        muted: false,
+                    },
+                    IrRackSlotView {
+                        id: 2,
+                        number: 2,
+                        filename: "York_Room.wav",
+                        metadata: "48.0 kHz | 24-bit | 2048 samples",
+                        waveform: &waveform_b,
+                        color: ir_ui::IR_COLORS[1],
+                        enabled: true,
+                        gain_db: -12.0,
+                        delay_samples: 6,
+                        sample_rate: 48_000.0,
+                        pan: 0.1,
+                        polarity_inverted: false,
+                        normalize: true,
+                        soloed: false,
+                        muted: false,
+                    },
+                ];
+                state.actions.extend(
+                    IrRackCard::new("rack", &IrRackCardView { slots: &slots })
+                        .width(900.0)
+                        .rack_height(300.0)
+                        .show(ui)
+                        .inner,
+                );
+            },
+            IrRackState {
+                actions: vec![],
+                initialized: false,
+            },
+        )
+}
+
+#[test]
+fn ir_rack_emits_actions_without_mutating_slots() {
+    let mut h = ir_rack_harness(1.0);
+    h.get_by_label("Add IR").click();
+    h.run();
+    h.get_by_label("Enable York_Mix01.wav").click();
+    h.run();
+    assert_eq!(
+        h.state().actions,
+        vec![
+            IrRackAction::AddIr,
+            IrRackAction::SetEnabled {
+                id: 1,
+                enabled: false,
+            },
+        ]
+    );
+}
+
+#[test]
+fn ir_rack_snapshots_at_supported_scales() {
+    let mut results = SnapshotResults::new();
+    for scale in [1, 2] {
+        let mut h = ir_rack_harness(scale as f32);
+        h.snapshot(format!("ir_rack_{scale}x"));
+        results.extend_harness(&mut h);
+    }
+    results.unwrap();
+}

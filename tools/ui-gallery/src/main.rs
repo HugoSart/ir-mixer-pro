@@ -43,6 +43,7 @@ enum GalleryPage {
 struct GalleryApp {
     preview_card: cards::CardsDemo,
     live_card: cards::CardsDemo,
+    ir_rack_card: cards::IrRackDemo,
     output_card: cards::OutputDemo,
     export_card: cards::ExportDemo,
     page: GalleryPage,
@@ -73,6 +74,7 @@ impl Default for GalleryApp {
         Self {
             preview_card: cards::CardsDemo::default(),
             live_card: cards::CardsDemo::live(),
+            ir_rack_card: cards::IrRackDemo::default(),
             output_card: cards::OutputDemo::default(),
             export_card: cards::ExportDemo::default(),
             page: GalleryPage::Foundations,
@@ -139,12 +141,15 @@ impl App for GalleryApp {
                     .show(ui, |ui| match self.page {
                         GalleryPage::Foundations => self.foundations(ui),
                         GalleryPage::Cards => {
-                            Self::page_title(ui, "Cards", "Interactive dummy Input Source, Output, and Export controls; no real devices or files.");
+                            Self::page_title(ui, "Cards", "Interactive dummy source, IR rack, output, and export controls; no real devices or files.");
                             ui.horizontal_wrapped(|ui| {
                                 ui.vertical(|ui| { ui.set_width(320.0); self.preview_card.show(ui, "preview_card"); });
                                 ui.add_space(16.0);
                                 ui.vertical(|ui| { ui.set_width(320.0); self.live_card.show(ui, "live_card"); });
                             });
+                            ui.add_space(16.0);
+                            let rack_width = ui.available_width().clamp(640.0, 900.0);
+                            self.ir_rack_card.show(ui, rack_width);
                             ui.add_space(16.0);
                             ui.horizontal_wrapped(|ui| {
                                 ui.vertical(|ui| { ui.set_width(320.0); self.output_card.show(ui); });

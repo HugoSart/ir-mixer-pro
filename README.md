@@ -26,10 +26,11 @@ outlined and borderless variants.
 Running plain `cargo run` starts the root placeholder binary in `src/main.rs`,
 not the component gallery.
 
-The **Cards** tab shows Input Source (Preview and Live), Output, and Export Mixed
-IR cards. Controls update dummy gallery state; Browse cycles example filenames and
-Play advances a simulated clock. The Output meter is animated; device, file, and
-export actions are only simulated—no audio devices or files are opened.
+The **Cards** tab shows Input Source (Preview and Live), a scrollable multi-IR
+rack, Output, and Export Mixed IR cards. Controls update dummy gallery state;
+Browse cycles example filenames and Play advances a simulated clock. The Output
+meter is animated; device, file, and export actions are only simulated—no audio
+devices or files are opened.
 
 ## Development checks
 
