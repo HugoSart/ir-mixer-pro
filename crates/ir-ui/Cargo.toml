@@ -1,0 +1,12 @@
+[package]
+name = "ir-ui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+egui.workspace = true
+egui-lucide.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true

@@ -1,0 +1,5 @@
+output_path = "tests/snapshots"
+threshold = 1.0
+
+[windows]
+threshold = 1.5

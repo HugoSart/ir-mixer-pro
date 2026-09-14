@@ -1,0 +1,11 @@
+[package]
+name = "ir-ui-gallery"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+egui.workspace = true
+egui_extras.workspace = true
+egui-lucide.workspace = true
+ir-ui = { path = "../../crates/ir-ui" }
+nice-plug-egui.workspace = true
