@@ -26,6 +26,10 @@ outlined and borderless variants.
 Running plain `cargo run` starts the root placeholder binary in `src/main.rs`,
 not the component gallery.
 
+The **Cards** tab shows Input Source in Preview and Live modes. Controls update
+dummy gallery state; Browse cycles example filenames and Play advances a simulated
+clock. No audio devices or files are opened.
+
 ## Development checks
 
 Run the full workspace test suite:

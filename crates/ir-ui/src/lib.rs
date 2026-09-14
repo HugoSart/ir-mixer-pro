@@ -3,6 +3,7 @@
 //! The crate deliberately depends on egui rather than nice-plug. Host and
 //! standalone adapters can therefore render exactly the same widgets.
 
+pub mod components;
 pub mod palette;
 pub mod theme;
 pub mod widgets;

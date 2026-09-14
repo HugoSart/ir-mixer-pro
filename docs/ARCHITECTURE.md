@@ -114,6 +114,13 @@ The DSP layer should receive compact real-time-safe representations rather than 
 
 ## 4. UI-to-Backend Boundary
 
+The current card milestone uses controlled display data and typed UI actions.
+`ir_ui::components::InputSourceCard` returns `InputSourceAction` values to its
+caller. Gallery adapters apply those to local dummy state; future application
+adapters will translate them to application commands. Cards do not own devices,
+open files, or call the backend. Shared `CardFrame` chrome remains independent
+of semantic card content.
+
 The first implementation should use a backend abstraction.
 
 Conceptually:

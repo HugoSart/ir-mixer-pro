@@ -1,3 +1,4 @@
+mod cards;
 use egui::{Color32, RichText, ScrollArea, Stroke, Vec2, vec2};
 use egui_lucide::Lucide;
 use ir_ui::widgets::{
@@ -30,6 +31,7 @@ fn main() {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum GalleryPage {
+    Cards,
     #[default]
     Foundations,
     Buttons,
@@ -39,6 +41,8 @@ enum GalleryPage {
 }
 
 struct GalleryApp {
+    preview_card: cards::CardsDemo,
+    live_card: cards::CardsDemo,
     page: GalleryPage,
     source_mode: usize,
     muted: bool,
@@ -64,6 +68,8 @@ struct GalleryApp {
 impl Default for GalleryApp {
     fn default() -> Self {
         Self {
+            preview_card: cards::CardsDemo::default(),
+            live_card: cards::CardsDemo::live(),
             page: GalleryPage::Foundations,
             source_mode: 0,
             muted: true,
@@ -126,6 +132,14 @@ impl App for GalleryApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| match self.page {
                         GalleryPage::Foundations => self.foundations(ui),
+                        GalleryPage::Cards => {
+                            Self::page_title(ui, "Cards", "Input Source · interactive dummy data; Browse cycles example filenames.");
+                            ui.horizontal_wrapped(|ui| {
+                                ui.vertical(|ui| { ui.set_width(320.0); self.preview_card.show(ui, "preview_card"); });
+                                ui.add_space(16.0);
+                                ui.vertical(|ui| { ui.set_width(320.0); self.live_card.show(ui, "live_card"); });
+                            });
+                        },
                         GalleryPage::Buttons => self.buttons(ui),
                         GalleryPage::Selectors => self.selectors(ui),
                         GalleryPage::Values => self.values(ui),
@@ -152,6 +166,7 @@ impl GalleryApp {
 
         for (page, icon, label) in [
             (GalleryPage::Foundations, Lucide::Palette, "Foundations"),
+            (GalleryPage::Cards, Lucide::PanelTop, "Cards"),
             (
                 GalleryPage::Buttons,
                 Lucide::MousePointerClick,

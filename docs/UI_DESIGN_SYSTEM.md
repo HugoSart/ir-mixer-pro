@@ -199,6 +199,14 @@ in the same change.
 
 ## 8. Component Gallery Workflow
 
+Composed cards live in `ir_ui::components`. `CardFrame` owns shared chrome and
+offers body and header-action closures, primary/inset variants, optional numbered
+headers, width, and minimum height. Width includes padding and borders.
+`InputSourceCard` consumes a borrowed view and returns typed actions; the caller
+owns selection, transport, and side effects. Give each card instance a stable ID.
+Input Source supports widths of 280 points and above (300 by default).
+The Cards gallery applies these actions to independent dummy Preview/Live states.
+
 Run the native Storybook-style gallery with:
 
 ```text
