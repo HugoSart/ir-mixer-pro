@@ -516,6 +516,16 @@ impl GalleryApp {
             ui.add_space(12.0);
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
+                    ui.label("Compact knob");
+                    ui.add(
+                        AudioKnob::new(&mut self.gain_db, -60.0..=12.0, "IR Level")
+                            .default_value(0.0)
+                            .suffix(" dB")
+                            .accent(ds.colors.border_strong)
+                            .small(true),
+                    );
+                });
+                ui.vertical(|ui| {
                     ui.label("Level");
                     ui.add(MiniFader::new(
                         &mut self.gain_db,
