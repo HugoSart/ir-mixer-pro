@@ -310,3 +310,90 @@ fn ir_rack_snapshots_at_supported_scales() {
     }
     results.unwrap();
 }
+
+struct AnalysisState {
+    actions: Vec<AnalysisPreviewAction>,
+    initialized: bool,
+}
+
+fn analysis_harness(scale: f32) -> Harness<'static, AnalysisState> {
+    Harness::builder()
+        .with_size(egui::vec2(960.0, 650.0))
+        .with_pixels_per_point(scale)
+        .build_ui_state(
+            |ui, state| {
+                if !state.initialized {
+                    ir_ui::install(ui.ctx());
+                    egui_extras::install_image_loaders(ui.ctx());
+                    state.initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+
+                let curves = (0..5)
+                    .map(|index| ir_ui::widgets::deterministic_curve(index as f32 * 0.8, 180))
+                    .collect::<Vec<_>>();
+                let traces = curves
+                    .iter()
+                    .enumerate()
+                    .map(|(index, curve)| AnalysisTraceView {
+                        label: ["IR 1", "IR 2", "IR 3", "IR 4", "Sum (Mixed)"][index],
+                        values: curve,
+                        color: if index == 4 {
+                            ir_ui::DesignSystem::default().colors.text_primary
+                        } else {
+                            ir_ui::IR_COLORS[index]
+                        },
+                        emphasized: index == 4,
+                    })
+                    .collect::<Vec<_>>();
+                let impulse = ir_ui::widgets::deterministic_waveform(0.35, 512);
+                let view = AnalysisPreviewCardView {
+                    selected_tab: 0,
+                    view_modes: &["Magnitude (dB)", "Magnitude (linear)"],
+                    view_mode: 0,
+                    smoothing_options: &["None", "1/12 Oct", "1/6 Oct"],
+                    smoothing: 1,
+                    frequency_traces: &traces,
+                    impulse_waveform: &impulse,
+                    impulse_color: ir_ui::IR_COLORS[0],
+                    phase_traces: &traces[..4],
+                    spectrum_traces: &traces[..3],
+                    sample_rate: "48.0 kHz",
+                    ir_length: "2048 samples (42.7 ms)",
+                    latency: "5.3 ms",
+                    cpu: "2.1%",
+                };
+                state.actions.extend(
+                    AnalysisPreviewCard::new("analysis", &view)
+                        .width(900.0)
+                        .graph_height(220.0)
+                        .show(ui)
+                        .inner,
+                );
+            },
+            AnalysisState {
+                actions: vec![],
+                initialized: false,
+            },
+        )
+}
+
+#[test]
+fn analysis_card_emits_tab_intent_without_mutating_view() {
+    let mut h = analysis_harness(1.0);
+    h.get_by_label("Phase").click();
+    h.run();
+    assert_eq!(h.state().actions, vec![AnalysisPreviewAction::SetTab(2)]);
+}
+
+#[test]
+fn analysis_card_snapshots_at_supported_scales() {
+    let mut results = SnapshotResults::new();
+    for scale in [1, 2] {
+        let mut h = analysis_harness(scale as f32);
+        h.snapshot(format!("analysis_preview_{scale}x"));
+        results.extend_harness(&mut h);
+    }
+    results.unwrap();
+}

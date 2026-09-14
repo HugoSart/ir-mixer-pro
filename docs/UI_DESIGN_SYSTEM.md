@@ -165,6 +165,17 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
   one inset content pane. The selected tab has the solid application accent;
   inactive tabs use the control surface. They are for view switching, not compact
   mutually exclusive settings such as Preview/Live source selection.
+- Card header icons use `icon.small`, a one-point stroke, `text.secondary`, and an
+  eight-point gap before the title. They align to the title's optical center and
+  have no badge or colored background.
+- IR rack columns expand to the card's available width. Rack rows are contiguous,
+  use `surface.toolbar`, and apply eight-point horizontal edge padding plus
+  six-point cell padding. A four-point table inset and low-alpha border frame the
+  rack on every side. Row dividers use a higher-alpha border than that table
+  frame. File names and metadata form one explicitly sized, vertically centered
+  block beside the waveform. Compact delay inputs stay vertically centered while
+  their left-aligned `graph_label`-sized millisecond readout is painted below
+  without participating in row alignment.
 
 ## 6. Audio Visuals
 
@@ -204,16 +215,20 @@ in the same change.
 ## 8. Component Gallery Workflow
 
 Composed cards live in `ir_ui::components`. `CardFrame` owns shared chrome and
-offers body and header-action closures, primary/inset variants, optional numbered
-headers, width, and minimum height. Width includes padding and borders.
-`InputSourceCard`, `IrRackCard`, `OutputCard`, and `ExportMixedIrCard` consume
-borrowed views and return typed actions; the caller owns selections, transport,
-and side effects. Give each card instance a stable ID. `IrRackCard` is a wide,
-scrollable N-slot rack (640 points minimum); the remaining cards support widths of
-280 points and above (300 by default). The Cards gallery applies these actions to
-independent dummy states. In particular, choosing an output device, choosing an
-export destination, and exporting are intentions only; the components never access
-devices or files.
+offers body and header-action closures, primary/inset variants, optional leading
+icons or numbered headers, width, and minimum height. Width includes padding and
+borders. Product cards use leading icons; numbered headers remain available for
+ordered gallery examples.
+`InputSourceCard`, `IrRackCard`, `AnalysisPreviewCard`, `OutputCard`, and
+`ExportMixedIrCard` consume borrowed views and return typed actions; the caller
+owns selections, transport, and side effects. Give each card instance a stable
+ID. `IrRackCard` and `AnalysisPreviewCard` are wide components with a 640-point
+minimum; the remaining cards support widths of 280 points and above (300 by
+default). The analysis card owns presentation only: its traces, waveform, status,
+active tab, view mode, and smoothing selection come from the caller. The Cards
+gallery applies these actions to independent dummy states. In particular,
+choosing an output device, choosing an export destination, and exporting are
+intentions only; the components never access devices or files.
 
 Run the native Storybook-style gallery with:
 

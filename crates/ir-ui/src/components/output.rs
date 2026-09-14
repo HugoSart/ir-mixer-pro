@@ -1,6 +1,7 @@
 use super::CardFrame;
 use crate::{DesignSystem, widgets::*};
 use egui::{InnerResponse, Ui};
+use egui_lucide::Lucide;
 
 pub struct OutputCardView<'a> {
     pub devices: &'a [&'a str],
@@ -49,7 +50,7 @@ impl<'a> OutputCard<'a> {
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<OutputAction>> {
         ui.push_id(self.id, |ui| {
             CardFrame::new("Output")
-                .number(3)
+                .icon(Lucide::Volume2)
                 .width(self.width)
                 .show(ui, |ui| {
                     let v = self.view;

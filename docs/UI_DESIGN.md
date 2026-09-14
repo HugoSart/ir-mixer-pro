@@ -195,9 +195,9 @@ When new IRs are added, preserve existing scroll position sensibly.
 
 ## 8. Gain Control
 
-For IR mixing, a vertical mini-fader or compact rotary control can work.
-
-The approved concept favored modern audio controls with clear numeric values.
+IR rack levels use a compact rotary control. Its numeric dB value sits above the
+dial, matching the compact Pan control's geometry. The level knob uses neutral
+control colors; IR identity colors remain on waveforms and analysis traces.
 
 Requirements:
 

@@ -44,6 +44,7 @@ struct GalleryApp {
     preview_card: cards::CardsDemo,
     live_card: cards::CardsDemo,
     ir_rack_card: cards::IrRackDemo,
+    analysis_card: cards::AnalysisDemo,
     output_card: cards::OutputDemo,
     export_card: cards::ExportDemo,
     page: GalleryPage,
@@ -75,6 +76,7 @@ impl Default for GalleryApp {
             preview_card: cards::CardsDemo::default(),
             live_card: cards::CardsDemo::live(),
             ir_rack_card: cards::IrRackDemo::default(),
+            analysis_card: cards::AnalysisDemo::default(),
             output_card: cards::OutputDemo::default(),
             export_card: cards::ExportDemo::default(),
             page: GalleryPage::Foundations,
@@ -150,6 +152,8 @@ impl App for GalleryApp {
                             ui.add_space(16.0);
                             let rack_width = ui.available_width().clamp(640.0, 900.0);
                             self.ir_rack_card.show(ui, rack_width);
+                            ui.add_space(16.0);
+                            self.analysis_card.show(ui, rack_width);
                             ui.add_space(16.0);
                             ui.horizontal_wrapped(|ui| {
                                 ui.vertical(|ui| { ui.set_width(320.0); self.output_card.show(ui); });

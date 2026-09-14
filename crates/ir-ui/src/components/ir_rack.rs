@@ -82,7 +82,7 @@ impl<'a> IrRackCard<'a> {
             }
             let header_selected = selected;
             CardFrame::new("IRs (Mix up to N IRs)")
-                .number(2)
+                .icon(Lucide::Speaker)
                 .width(self.width)
                 .min_height(self.rack_height + 80.0)
                 .show_with_header(
@@ -125,30 +125,62 @@ impl<'a> IrRackCard<'a> {
                     },
                     |ui| {
                         ScrollArea::horizontal().id_salt("columns").show(ui, |ui| {
-                            ui.set_min_width(table_width());
-                            let (rect, _) = ui.allocate_exact_size(
-                                vec2(table_width(), 28.0),
-                                egui::Sense::hover(),
-                            );
-                            for (i, (label, _)) in COLUMNS.iter().enumerate() {
-                                cell(ui, rect, i, |ui| {
-                                    ui.label(
-                                        RichText::new(*label).font(TextRole::Metadata.font_id()),
-                                    );
-                                });
-                            }
-                            ScrollArea::vertical()
-                                .id_salt("rows")
-                                .max_height(self.rack_height)
+                            let ds = DesignSystem::default();
+                            let minimum_width =
+                                table_width() + 2.0 * ROW_HORIZONTAL_PADDING + 2.0 * TABLE_MARGIN;
+                            ui.set_min_width(minimum_width.max(ui.available_width()));
+                            egui::Frame::new()
+                                .stroke(egui::Stroke::new(
+                                    1.0,
+                                    with_alpha(ds.colors.border_subtle, TABLE_BORDER_ALPHA),
+                                ))
+                                .inner_margin(egui::Margin::same(TABLE_MARGIN as i8))
                                 .show(ui, |ui| {
-                                    if self.view.slots.is_empty() {
-                                        ui.label("No IRs loaded. Add an IR to begin mixing.");
-                                    }
-                                    for slot in self.view.slots {
-                                        ui.push_id(slot.id, |ui| {
-                                            row(ui, slot, &mut selected, &mut actions.borrow_mut())
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    let outer_width = (table_width()
+                                        + 2.0 * ROW_HORIZONTAL_PADDING)
+                                        .max(ui.available_width());
+                                    let content_width = outer_width - 2.0 * ROW_HORIZONTAL_PADDING;
+                                    let column_widths = column_widths(content_width);
+                                    ui.set_min_width(outer_width);
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        vec2(outer_width, 28.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    let header_rect =
+                                        rect.shrink2(vec2(ROW_HORIZONTAL_PADDING, 0.0));
+                                    for (i, (label, _)) in COLUMNS.iter().enumerate() {
+                                        cell(ui, header_rect, &column_widths, i, |ui| {
+                                            ui.label(
+                                                RichText::new(*label)
+                                                    .font(TextRole::Metadata.font_id()),
+                                            );
                                         });
                                     }
+                                    ScrollArea::vertical()
+                                        .id_salt("rows")
+                                        .max_height(self.rack_height)
+                                        .show(ui, |ui| {
+                                            ui.spacing_mut().item_spacing.y = 0.0;
+                                            if self.view.slots.is_empty() {
+                                                ui.add_space(ROW_HORIZONTAL_PADDING);
+                                                ui.label(
+                                                    "No IRs loaded. Add an IR to begin mixing.",
+                                                );
+                                            }
+                                            for slot in self.view.slots {
+                                                ui.push_id(slot.id, |ui| {
+                                                    row(
+                                                        ui,
+                                                        slot,
+                                                        outer_width,
+                                                        &column_widths,
+                                                        &mut selected,
+                                                        &mut actions.borrow_mut(),
+                                                    )
+                                                });
+                                            }
+                                        });
                                 });
                         });
                     },
@@ -167,7 +199,7 @@ const COLUMNS: [(&str, f32); 12] = [
     ("Enable", 44.0),
     ("IR File", 172.0),
     ("Waveform", 120.0),
-    ("Level", 124.0),
+    ("Level", 56.0),
     ("Pan", 48.0),
     ("Delay", 76.0),
     ("Polarity", 48.0),
@@ -176,37 +208,65 @@ const COLUMNS: [(&str, f32); 12] = [
     ("Mute", 40.0),
     ("", 40.0),
 ];
+const TABLE_MARGIN: f32 = 4.0;
+const ROW_HORIZONTAL_PADDING: f32 = 8.0;
+const TABLE_BORDER_ALPHA: u8 = 72;
+const ROW_DIVIDER_ALPHA: u8 = 168;
+
 fn table_width() -> f32 {
     COLUMNS.iter().map(|(_, w)| w).sum()
 }
-fn cell(ui: &mut Ui, row: egui::Rect, column: usize, body: impl FnOnce(&mut Ui)) {
-    let offset: f32 = COLUMNS[..column].iter().map(|(_, w)| w).sum();
+
+fn column_widths(table_width: f32) -> [f32; COLUMNS.len()] {
+    let mut widths = COLUMNS.map(|(_, width)| width);
+    let extra = (table_width - self::table_width()).max(0.0);
+    widths[2] += extra * 0.55;
+    widths[3] += extra * 0.45;
+    widths
+}
+
+fn cell(
+    ui: &mut Ui,
+    row: egui::Rect,
+    widths: &[f32; COLUMNS.len()],
+    column: usize,
+    body: impl FnOnce(&mut Ui),
+) {
+    let offset: f32 = widths[..column].iter().sum();
     let rect = egui::Rect::from_min_size(
         row.min + vec2(offset, 0.0),
-        vec2(COLUMNS[column].1, row.height()),
+        vec2(widths[column], row.height()),
     );
     let mut child = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(rect.shrink2(vec2(4.0, 0.0)))
+            .max_rect(rect.shrink2(vec2(6.0, 0.0)))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
     child.set_clip_rect(ui.clip_rect().intersect(rect));
     body(&mut child);
 }
-fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut Vec<IrRackAction>) {
+fn row(
+    ui: &mut Ui,
+    s: &IrRackSlotView<'_>,
+    row_width: f32,
+    widths: &[f32; COLUMNS.len()],
+    selected: &mut Option<u64>,
+    a: &mut Vec<IrRackAction>,
+) {
     let ds = DesignSystem::default();
-    let (rect, _) = ui.allocate_exact_size(vec2(table_width(), 68.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 0, ds.colors.surface_inset);
+    let (rect, _) = ui.allocate_exact_size(vec2(row_width, 68.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 0, ds.colors.surface_toolbar);
     ui.painter().hline(
-        rect.x_range(),
+        rect.shrink2(vec2(ROW_HORIZONTAL_PADDING, 0.0)).x_range(),
         rect.bottom(),
-        egui::Stroke::new(1.0, ds.colors.border_subtle),
+        egui::Stroke::new(1.0, with_alpha(ds.colors.border_control, ROW_DIVIDER_ALPHA)),
     );
+    let content_rect = rect.shrink2(vec2(ROW_HORIZONTAL_PADDING, 0.0));
     let id = s.id;
-    cell(ui, rect, 0, |ui| {
+    cell(ui, content_rect, widths, 0, |ui| {
         ui.label(s.number.to_string());
     });
-    cell(ui, rect, 1, |ui| {
+    cell(ui, content_rect, widths, 1, |ui| {
         let mut enabled = s.enabled;
         if ui
             .add(Checkbox::new(&mut enabled, &format!("Enable {}", s.filename)).show_label(false))
@@ -215,70 +275,79 @@ fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut 
             a.push(IrRackAction::SetEnabled { id, enabled });
         }
     });
-    cell(ui, rect, 2, |ui| {
-        ui.vertical(|ui| {
-            if ui
-                .add(
-                    egui::Label::new(RichText::new(s.filename).color(if *selected == Some(id) {
-                        ds.colors.accent_focus
-                    } else {
-                        ds.colors.text_primary
-                    }))
-                    .truncate()
-                    .sense(egui::Sense::click()),
+    cell(ui, content_rect, widths, 2, |ui| {
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 34.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
+                if ui
+                    .add(
+                        egui::Label::new(RichText::new(s.filename).color(
+                            if *selected == Some(id) {
+                                ds.colors.accent_focus
+                            } else {
+                                ds.colors.text_primary
+                            },
+                        ))
+                        .truncate()
+                        .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text(s.filename)
+                    .clicked()
+                {
+                    *selected = Some(id);
+                }
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(s.metadata)
+                            .font(TextRole::Metadata.font_id())
+                            .color(ds.colors.text_secondary),
+                    )
+                    .truncate(),
                 )
-                .on_hover_text(s.filename)
-                .clicked()
-            {
-                *selected = Some(id);
-            }
-            ui.add(
-                egui::Label::new(
-                    RichText::new(s.metadata)
-                        .font(TextRole::Metadata.font_id())
-                        .color(ds.colors.text_secondary),
-                )
-                .truncate(),
-            )
-            .on_hover_text(s.metadata);
-        });
+                .on_hover_text(s.metadata);
+            },
+        );
     });
-    cell(ui, rect, 3, |ui| {
+    cell(ui, content_rect, widths, 3, |ui| {
         ui.add(
             WaveformView::new(s.waveform, s.color)
                 .size(vec2(112.0, 48.0))
                 .render_mode(WaveformRenderMode::Symmetric),
         );
     });
-    cell(ui, rect, 4, |ui| {
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ui.label(format!("{:.1} dB", s.gain_db));
-            let mut gain_db = s.gain_db;
-            if ui
-                .add(MiniFader::new(&mut gain_db, -60.0..=12.0, s.color))
-                .changed()
-            {
-                a.push(IrRackAction::SetGainDb { id, gain_db });
-            }
-        });
+    cell(ui, content_rect, widths, 4, |ui| {
+        let mut gain_db = s.gain_db;
+        if ui
+            .add(
+                AudioKnob::new(&mut gain_db, -60.0..=12.0, "IR Level")
+                    .default_value(0.0)
+                    .suffix(" dB")
+                    .accent(ds.colors.border_strong)
+                    .small(true),
+            )
+            .changed()
+        {
+            a.push(IrRackAction::SetGainDb { id, gain_db });
+        }
     });
-    cell(ui, rect, 5, |ui| {
+    cell(ui, content_rect, widths, 5, |ui| {
         let mut pan = s.pan;
         if ui.add(PanKnob::new(&mut pan).small(true)).changed() {
             a.push(IrRackAction::SetPan { id, pan });
         }
     });
-    cell(ui, rect, 6, |ui| {
+    cell(ui, content_rect, widths, 6, |ui| {
         let mut delay_samples = s.delay_samples;
         if ui
-            .add(SampleDelayEditor::new(&mut delay_samples, s.sample_rate))
+            .add(SampleDelayEditor::new(&mut delay_samples, s.sample_rate).compact(true))
             .changed()
         {
             a.push(IrRackAction::SetDelaySamples { id, delay_samples });
         }
     });
-    cell(ui, rect, 7, |ui| {
+    cell(ui, content_rect, widths, 7, |ui| {
         let mut inverted = s.polarity_inverted;
         if ui
             .add(ChannelToggle::new(
@@ -292,7 +361,7 @@ fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut 
             a.push(IrRackAction::SetPolarity { id, inverted });
         }
     });
-    cell(ui, rect, 8, |ui| {
+    cell(ui, content_rect, widths, 8, |ui| {
         let mut normalize = s.normalize;
         if ui
             .add(Checkbox::new(&mut normalize, "Normalize IR").show_label(false))
@@ -301,7 +370,7 @@ fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut 
             a.push(IrRackAction::SetNormalize { id, normalize });
         }
     });
-    cell(ui, rect, 9, |ui| {
+    cell(ui, content_rect, widths, 9, |ui| {
         let mut soloed = s.soloed;
         if ui
             .add(ChannelToggle::new(
@@ -315,7 +384,7 @@ fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut 
             a.push(IrRackAction::SetSolo { id, soloed });
         }
     });
-    cell(ui, rect, 10, |ui| {
+    cell(ui, content_rect, widths, 10, |ui| {
         let mut muted = s.muted;
         if ui
             .add(ChannelToggle::new(
@@ -329,7 +398,7 @@ fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut 
             a.push(IrRackAction::SetMute { id, muted });
         }
     });
-    cell(ui, rect, 11, |ui| {
+    cell(ui, content_rect, widths, 11, |ui| {
         ui.menu_button("…", |ui| {
             if ui.add(ActionButton::new("Replace IR file")).clicked() {
                 a.push(IrRackAction::Browse { id });
@@ -341,4 +410,8 @@ fn row(ui: &mut Ui, s: &IrRackSlotView<'_>, selected: &mut Option<u64>, a: &mut 
             }
         });
     });
+}
+
+fn with_alpha(color: Color32, alpha: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha)
 }

@@ -54,7 +54,7 @@ impl<'a> ExportMixedIrCard<'a> {
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<ExportMixedIrAction>> {
         ui.push_id(self.id, |ui| {
             CardFrame::new("Export Mixed IR")
-                .number(6)
+                .icon(Lucide::Download)
                 .width(self.width)
                 .show(ui, |ui| {
                     let v = self.view;

@@ -1,5 +1,6 @@
 use crate::{DesignSystem, TextRole, widgets::section_header};
 use egui::{InnerResponse, RichText, Ui, Vec2};
+use egui_lucide::Lucide;
 
 #[derive(Clone, Copy, Default)]
 pub enum CardVariant {
@@ -12,6 +13,7 @@ pub enum CardVariant {
 pub struct CardFrame<'a> {
     title: &'a str,
     number: Option<u8>,
+    icon: Option<Lucide>,
     width: f32,
     min_height: f32,
     variant: CardVariant,
@@ -22,6 +24,7 @@ impl<'a> CardFrame<'a> {
         Self {
             title,
             number: None,
+            icon: None,
             width: 300.0,
             min_height: 0.0,
             variant: CardVariant::Primary,
@@ -29,6 +32,12 @@ impl<'a> CardFrame<'a> {
     }
     pub fn number(mut self, number: u8) -> Self {
         self.number = Some(number);
+        self.icon = None;
+        self
+    }
+    pub fn icon(mut self, icon: Lucide) -> Self {
+        self.icon = Some(icon);
+        self.number = None;
         self
     }
     pub fn width(mut self, width: f32) -> Self {
@@ -65,7 +74,19 @@ impl<'a> CardFrame<'a> {
                     ui.set_width((self.width - 2.0 * padding - 2.0).max(0.0));
                     ui.set_min_height((self.min_height - 2.0 * padding - 2.0).max(0.0));
                     ui.horizontal(|ui| {
-                        if let Some(number) = self.number {
+                        if let Some(icon) = self.icon {
+                            ui.spacing_mut().item_spacing.x = ds.metrics.space_sm;
+                            ui.add(
+                                icon.size(ds.metrics.icon_small)
+                                    .stroke_width(1.0)
+                                    .color(ds.colors.text_secondary),
+                            );
+                            ui.label(
+                                RichText::new(self.title)
+                                    .font(TextRole::SectionTitle.font_id())
+                                    .color(ds.colors.text_primary),
+                            );
+                        } else if let Some(number) = self.number {
                             section_header(ui, number, self.title);
                         } else {
                             ui.label(

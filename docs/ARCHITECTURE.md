@@ -115,7 +115,7 @@ The DSP layer should receive compact real-time-safe representations rather than 
 ## 4. UI-to-Backend Boundary
 
 The current card milestone uses controlled display data and typed UI actions.
-`ir_ui::components::{InputSourceCard, IrRackCard, OutputCard, ExportMixedIrCard}`
+`ir_ui::components::{InputSourceCard, IrRackCard, AnalysisPreviewCard, OutputCard, ExportMixedIrCard}`
 return typed action values to their caller. Gallery adapters apply those to local
 dummy state; future application adapters will translate them to application
 commands. Cards do not own devices, open files, start exports, or call the backend.

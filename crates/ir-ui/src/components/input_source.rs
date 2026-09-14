@@ -78,7 +78,7 @@ impl<'a> InputSourceCard<'a> {
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<InputSourceAction>> {
         ui.push_id(self.id, |ui| {
             CardFrame::new("Input Source")
-                .number(1)
+                .icon(Lucide::Cable)
                 .width(self.width)
                 .show(ui, |ui| {
                     let mut actions = Vec::new();

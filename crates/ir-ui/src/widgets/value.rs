@@ -287,6 +287,7 @@ pub struct SampleDelayEditor<'a> {
     samples: &'a mut i32,
     sample_rate: f32,
     range: std::ops::RangeInclusive<i32>,
+    compact: bool,
 }
 
 impl<'a> SampleDelayEditor<'a> {
@@ -295,6 +296,7 @@ impl<'a> SampleDelayEditor<'a> {
             samples,
             sample_rate,
             range: 0..=4096,
+            compact: false,
         }
     }
 
@@ -302,11 +304,37 @@ impl<'a> SampleDelayEditor<'a> {
         self.range = range;
         self
     }
+
+    /// Centers the sample input in its row and paints milliseconds beneath it
+    /// without letting the metadata affect surrounding layout alignment.
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
+        self
+    }
 }
 
 impl Widget for SampleDelayEditor<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let ds = DesignSystem::default();
+        let milliseconds = samples_to_milliseconds(*self.samples, self.sample_rate);
+        if self.compact {
+            let response = ui.add_sized(
+                vec2(68.0, ds.metrics.control_height),
+                DragValue::new(self.samples)
+                    .range(self.range)
+                    .speed(1.0)
+                    .suffix(" smp"),
+            );
+            ui.painter().text(
+                pos2(response.rect.left(), response.rect.bottom() + 2.0),
+                Align2::LEFT_TOP,
+                format!("{milliseconds:.3} ms"),
+                TextRole::GraphLabel.font_id(),
+                ds.colors.text_secondary,
+            );
+            return response;
+        }
+
         let mut response: Option<Response> = None;
         ui.vertical(|ui| {
             let value_response = ui.add(
@@ -316,7 +344,6 @@ impl Widget for SampleDelayEditor<'_> {
                     .suffix(" smp"),
             );
             response = Some(value_response);
-            let milliseconds = samples_to_milliseconds(*self.samples, self.sample_rate);
             ui.label(
                 egui::RichText::new(format!("{milliseconds:.3} ms"))
                     .font(TextRole::Metadata.font_id())

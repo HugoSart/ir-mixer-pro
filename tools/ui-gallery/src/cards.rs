@@ -1,5 +1,8 @@
 use ir_ui::components::*;
-use ir_ui::{IR_COLORS, widgets::deterministic_waveform};
+use ir_ui::{
+    DesignSystem, IR_COLORS,
+    widgets::{deterministic_curve, deterministic_waveform},
+};
 
 pub struct CardsDemo {
     mode: SourceMode,
@@ -275,6 +278,101 @@ fn with_slot(slots: &mut [DummyIrSlot], id: u64, update: impl FnOnce(&mut DummyI
     if let Some(slot) = slots.iter_mut().find(|slot| slot.id == id) {
         update(slot);
     }
+}
+
+pub struct AnalysisDemo {
+    selected_tab: usize,
+    view_mode: usize,
+    smoothing: usize,
+    frequency: Vec<Vec<f32>>,
+    phase: Vec<Vec<f32>>,
+    spectrum: Vec<Vec<f32>>,
+    impulse: Vec<f32>,
+    last_action: String,
+}
+
+impl Default for AnalysisDemo {
+    fn default() -> Self {
+        Self {
+            selected_tab: 0,
+            view_mode: 0,
+            smoothing: 1,
+            frequency: (0..5)
+                .map(|index| deterministic_curve(index as f32 * 0.83, 220))
+                .collect(),
+            phase: (0..4)
+                .map(|index| deterministic_curve(index as f32 * 1.17 + 0.4, 220))
+                .collect(),
+            spectrum: (0..3)
+                .map(|index| deterministic_curve(index as f32 * 0.61 + 1.2, 220))
+                .collect(),
+            impulse: deterministic_waveform(0.35, 512),
+            last_action: "Choose an analysis tab or display option.".into(),
+        }
+    }
+}
+
+impl AnalysisDemo {
+    pub fn show(&mut self, ui: &mut egui::Ui, width: f32) {
+        let ds = DesignSystem::default();
+        let frequency = analysis_traces(&self.frequency, true, ds.colors.text_primary);
+        let phase = analysis_traces(&self.phase, false, ds.colors.text_primary);
+        let spectrum = analysis_traces(&self.spectrum, false, ds.colors.text_primary);
+        let view = AnalysisPreviewCardView {
+            selected_tab: self.selected_tab,
+            view_modes: &["Magnitude (dB)", "Magnitude (linear)"],
+            view_mode: self.view_mode,
+            smoothing_options: &["None", "1/12 Oct", "1/6 Oct", "1/3 Oct"],
+            smoothing: self.smoothing,
+            frequency_traces: &frequency,
+            impulse_waveform: &self.impulse,
+            impulse_color: IR_COLORS[0],
+            phase_traces: &phase,
+            spectrum_traces: &spectrum,
+            sample_rate: "48.0 kHz",
+            ir_length: "2048 samples (42.7 ms)",
+            latency: "5.3 ms",
+            cpu: "2.1%",
+        };
+        for action in AnalysisPreviewCard::new("analysis_card", &view)
+            .width(width)
+            .show(ui)
+            .inner
+        {
+            self.last_action = format!("{action:?}");
+            match action {
+                AnalysisPreviewAction::SetTab(value) => self.selected_tab = value,
+                AnalysisPreviewAction::SetViewMode(value) => self.view_mode = value,
+                AnalysisPreviewAction::SetSmoothing(value) => self.smoothing = value,
+            }
+        }
+        ui.label(egui::RichText::new(&self.last_action).small());
+    }
+}
+
+fn analysis_traces<'a>(
+    values: &'a [Vec<f32>],
+    include_mix: bool,
+    mixed_color: egui::Color32,
+) -> Vec<AnalysisTraceView<'a>> {
+    const LABELS: [&str; 5] = ["IR 1", "IR 2", "IR 3", "IR 4", "Sum (Mixed)"];
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, curve)| {
+            let emphasized = include_mix && index + 1 == values.len();
+            AnalysisTraceView {
+                label: LABELS[index.min(LABELS.len() - 1)],
+                values: curve,
+                color: if emphasized {
+                    mixed_color
+                } else {
+                    IR_COLORS[index % IR_COLORS.len()]
+                },
+                emphasized,
+            }
+        })
+        .collect()
 }
 
 pub struct OutputDemo {
