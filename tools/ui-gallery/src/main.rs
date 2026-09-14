@@ -4,8 +4,8 @@ use egui_lucide::Lucide;
 use ir_ui::widgets::{
     ActionButton, AudioKnob, ButtonKind, ChannelToggle, Checkbox, DbValueEditor, DropdownSelector,
     GraphFrame, IconButton, LevelMeter, ListSelector, ListSelectorItem, MiniFader, PanKnob,
-    SampleDelayEditor, SegmentedControl, SelectorLabelPosition, WaveformRenderMode, WaveformView,
-    deterministic_curve, deterministic_waveform, section_header,
+    SampleDelayEditor, SegmentedControl, SelectorLabelPosition, TabViewer, WaveformRenderMode,
+    WaveformView, deterministic_curve, deterministic_waveform, section_header,
 };
 use ir_ui::{DesignSystem, IR_COLORS, TextRole};
 use nice_plug_egui::{App, EguiWindow, EguiWindowSettings, Frame, baseview::dpi::LogicalSize};
@@ -57,6 +57,7 @@ struct GalleryApp {
     dropdown_left: usize,
     dropdown_top: usize,
     list_selection: usize,
+    analysis_tab: usize,
     selection_feedback: String,
     gain_db: f32,
     output_db: f32,
@@ -86,6 +87,7 @@ impl Default for GalleryApp {
             dropdown_left: 1,
             dropdown_top: 2,
             list_selection: 0,
+            analysis_tab: 0,
             selection_feedback: "Choose a preset. The third row is guarded.".into(),
             gain_db: -7.0,
             output_db: -2.0,
@@ -596,7 +598,57 @@ impl GalleryApp {
 
         ui.add_space(12.0);
         ds.panel_frame().show(ui, |ui| {
-            section_header(ui, 5, "Empty, loading, and error");
+            section_header(ui, 5, "Analysis tab viewer");
+            ui.add_space(12.0);
+            let labels = [
+                "Frequency Response",
+                "Impulse Response",
+                "Phase",
+                "Spectrogram",
+            ];
+            let curve_refs = self
+                .curves
+                .iter()
+                .enumerate()
+                .map(|(index, curve)| (curve.as_slice(), IR_COLORS[index]))
+                .collect::<Vec<_>>();
+            TabViewer::new(&labels, &mut self.analysis_tab)
+                .min_content_height(220.0)
+                .show(ui, |ui, active| match active {
+                    0 => {
+                        ui.label("Frequency response (dummy)");
+                        ui.add(
+                            GraphFrame::new(&curve_refs).size(vec2(ui.available_width(), 180.0)),
+                        );
+                    }
+                    1 => {
+                        ui.label("Combined impulse response (dummy)");
+                        ui.add(
+                            WaveformView::new(&self.waveforms[0], IR_COLORS[0])
+                                .size(vec2(ui.available_width(), 180.0))
+                                .render_mode(WaveformRenderMode::Signed),
+                        );
+                    }
+                    2 => {
+                        ui.label("Phase comparison (dummy)");
+                        ui.add(
+                            GraphFrame::new(&curve_refs[1..])
+                                .size(vec2(ui.available_width(), 180.0)),
+                        );
+                    }
+                    _ => {
+                        ui.label("Spectrogram preview (dummy)");
+                        ui.add(
+                            GraphFrame::new(&curve_refs[..1])
+                                .size(vec2(ui.available_width(), 180.0)),
+                        );
+                    }
+                });
+        });
+
+        ui.add_space(12.0);
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 6, "Empty, loading, and error");
             ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
                 state_card(

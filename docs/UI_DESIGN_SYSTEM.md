@@ -161,6 +161,10 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
 - Icon-only buttons have either an outlined control frame or a borderless ghost
   treatment. Ghost buttons gain a visible frame on hover or press. Every
   icon-only button requires a tooltip and accessibility label.
+- Analysis tab viewers use a horizontal strip of individually bordered tabs above
+  one inset content pane. The selected tab has the solid application accent;
+  inactive tabs use the control surface. They are for view switching, not compact
+  mutually exclusive settings such as Preview/Live source selection.
 
 ## 6. Audio Visuals
 
