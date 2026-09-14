@@ -1,4 +1,4 @@
-use egui::{Align2, Color32, Response, Sense, Stroke, Ui, Vec2, Widget, pos2, vec2};
+﻿use egui::{Align2, Color32, Response, Sense, Stroke, Ui, Vec2, Widget, pos2, vec2};
 
 use crate::{DesignSystem, TextRole};
 
@@ -46,7 +46,7 @@ impl<'a> WaveformView<'a> {
 
 impl Widget for WaveformView<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let (rect, response) = ui.allocate_exact_size(self.size, Sense::hover());
         ui.painter()
             .rect_filled(rect, ds.metrics.radius_control, ds.colors.surface_inset);
@@ -173,7 +173,7 @@ impl<'a> GraphFrame<'a> {
 
 impl Widget for GraphFrame<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let (rect, response) = ui.allocate_exact_size(self.size, Sense::hover());
         ui.painter()
             .rect_filled(rect, ds.metrics.radius_control, ds.colors.surface_inset);

@@ -114,12 +114,13 @@ The DSP layer should receive compact real-time-safe representations rather than 
 
 ## 4. UI-to-Backend Boundary
 
-The current card milestone uses controlled display data and typed UI actions.
+The UI uses controlled display data and typed UI actions.
 `ir_ui::components::{InputSourceCard, IrRackCard, AnalysisPreviewCard, OutputCard, ExportMixedIrCard}`
 return typed action values to their caller. Gallery adapters apply those to local
-dummy state; future application adapters will translate them to application
-commands. Cards do not own devices, open files, start exports, or call the backend.
-Shared `CardFrame` chrome remains independent of semantic card content.
+dummy state. `ir_ui::app::AppPage` adapts `ir_app::AppSnapshot` into those
+views and translates actions into stable-ID `AppCommand` values. Cards do not
+own devices, open files, start exports, or call the backend. Shared `CardFrame`
+chrome remains independent of semantic card content.
 
 The first implementation should use a backend abstraction.
 
@@ -127,13 +128,15 @@ Conceptually:
 
 ```rust
 pub trait AudioBackend {
-    fn snapshot(&self) -> AppSnapshot;
+    fn snapshot(&self) -> &AppSnapshot;
     fn dispatch(&mut self, command: AppCommand);
-    fn poll_events(&mut self) -> Vec<BackendEvent>;
+    fn update(&mut self, now_seconds: f64);
+    fn drain_events(&mut self) -> Vec<BackendEvent>;
 }
 ```
 
-The exact API may use channels instead of direct calls.
+The current mock backend implements this API directly. A native backend may use
+channels internally while preserving this UI-facing contract.
 
 Backends:
 
@@ -169,6 +172,18 @@ Responsible for communicating with:
 - Export engine
 
 Plugin builds may use a specialized adapter around the same application services.
+
+### Current UI-first milestone
+
+- `ir-app` owns serializable project state, versioned preset documents,
+  application commands, transient snapshots, and `MockAudioBackend`.
+- `ir-ui` owns reusable widgets/cards and the responsive, mode-aware
+  `AppPage`.
+- The root binary hosts `AppPage` with the mock backend.
+- `FrontendMode::Standalone` exposes device routing.
+  `FrontendMode::Plugin` replaces it with host-routing status.
+- Native audio, filesystem dialogs, export encoding, and DSP are the next
+  implementation phase.
 
 ## 5. DSP Architecture
 

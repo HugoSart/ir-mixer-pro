@@ -15,6 +15,7 @@ pub struct OutputCardView<'a> {
     pub limit_output: bool,
     pub levels_db: &'a [f32],
     pub peaks_db: &'a [f32],
+    pub standalone_routing: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,24 +56,32 @@ impl<'a> OutputCard<'a> {
                 .show(ui, |ui| {
                     let v = self.view;
                     let mut actions = Vec::new();
-                    let mut device = v.device;
-                    ui.add(
-                        DropdownSelector::new("output_device", v.devices, &mut device)
-                            .width(ui.available_width())
-                            .label("Output Device", SelectorLabelPosition::Top),
-                    );
-                    if device != v.device {
-                        actions.push(OutputAction::SetDevice(device));
-                    }
+                    if v.standalone_routing {
+                        let mut device = v.device;
+                        ui.add(
+                            DropdownSelector::new("output_device", v.devices, &mut device)
+                                .width(ui.available_width())
+                                .label("Output Device", SelectorLabelPosition::Top),
+                        );
+                        if device != v.device {
+                            actions.push(OutputAction::SetDevice(device));
+                        }
 
-                    let mut channel = v.channel;
-                    ui.add(
-                        DropdownSelector::new("output_channels", v.channels, &mut channel)
-                            .width(ui.available_width())
-                            .label("Output Channels", SelectorLabelPosition::Top),
-                    );
-                    if channel != v.channel {
-                        actions.push(OutputAction::SetChannel(channel));
+                        let mut channel = v.channel;
+                        ui.add(
+                            DropdownSelector::new("output_channels", v.channels, &mut channel)
+                                .width(ui.available_width())
+                                .label("Output Channels", SelectorLabelPosition::Top),
+                        );
+                        if channel != v.channel {
+                            actions.push(OutputAction::SetChannel(channel));
+                        }
+                    } else {
+                        DesignSystem::from_context(ui.ctx())
+                            .inset_frame()
+                            .show(ui, |ui| {
+                                ui.label("Audio output is routed by the plugin host.");
+                            });
                     }
 
                     ui.add_space(4.0);
@@ -93,18 +102,24 @@ impl<'a> OutputCard<'a> {
                         ui.add(
                             LevelMeter::new(v.levels_db, v.peaks_db)
                                 .size(egui::vec2(62.0, 154.0))
-                                .accent(DesignSystem::default().colors.status_success),
+                                .accent(DesignSystem::from_context(ui.ctx()).colors.status_success),
                         );
                     });
 
-                    let mut buffer_size = v.buffer_size;
-                    ui.add(
-                        DropdownSelector::new("output_buffer", v.buffer_sizes, &mut buffer_size)
+                    if v.standalone_routing {
+                        let mut buffer_size = v.buffer_size;
+                        ui.add(
+                            DropdownSelector::new(
+                                "output_buffer",
+                                v.buffer_sizes,
+                                &mut buffer_size,
+                            )
                             .width(ui.available_width())
                             .label("Buffer Size", SelectorLabelPosition::Top),
-                    );
-                    if buffer_size != v.buffer_size {
-                        actions.push(OutputAction::SetBufferSize(buffer_size));
+                        );
+                        if buffer_size != v.buffer_size {
+                            actions.push(OutputAction::SetBufferSize(buffer_size));
+                        }
                     }
 
                     let mut limit_output = v.limit_output;

@@ -1,4 +1,4 @@
-use crate::{DesignSystem, TextRole, widgets::ActionButton};
+﻿use crate::{DesignSystem, TextRole, widgets::ActionButton};
 use egui::{CornerRadius, Response, RichText, Ui, Vec2};
 
 /// A controlled tab strip with one shared inset content pane.
@@ -32,7 +32,7 @@ impl<'a> TabViewer<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, content: impl FnOnce(&mut Ui, usize)) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         if self.labels.is_empty() {
             *self.selected = 0;
         } else {

@@ -3,15 +3,21 @@
 //! The crate deliberately depends on egui rather than nice-plug. Host and
 //! standalone adapters can therefore render exactly the same widgets.
 
+pub mod app;
 pub mod components;
 pub mod palette;
 pub mod theme;
 pub mod widgets;
 
 pub use palette::{IR_COLORS, IrColorId};
-pub use theme::{DesignSystem, TextRole, install_theme};
+pub use theme::{DesignSystem, TextRole, install_theme, install_theme_with};
 
 /// Install resources that every IR Mixer egui renderer needs.
 pub fn install(ctx: &egui::Context) {
     install_theme(ctx);
+}
+
+/// Install a caller-supplied theme for all IR Mixer widgets in this context.
+pub fn install_with(ctx: &egui::Context, design_system: DesignSystem) {
+    install_theme_with(ctx, design_system);
 }

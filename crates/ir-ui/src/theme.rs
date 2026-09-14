@@ -13,7 +13,7 @@ const REGULAR: &str = "inter_regular";
 const MEDIUM: &str = "inter_medium";
 const SEMIBOLD: &str = "inter_semibold";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Colors {
     pub surface_canvas: Color32,
     pub surface_toolbar: Color32,
@@ -39,7 +39,7 @@ pub struct Colors {
     pub status_danger: Color32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Metrics {
     pub space_xs: f32,
     pub space_sm: f32,
@@ -57,7 +57,7 @@ pub struct Metrics {
     pub icon_large: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DesignSystem {
     pub colors: Colors,
     pub metrics: Metrics,
@@ -111,6 +111,13 @@ impl Default for DesignSystem {
 }
 
 impl DesignSystem {
+    pub fn from_context(ctx: &egui::Context) -> Self {
+        ctx.data(|data| {
+            data.get_temp::<Self>(egui::Id::new("ir_mixer_design_system"))
+                .unwrap_or_default()
+        })
+    }
+
     pub fn panel_frame(self) -> egui::Frame {
         egui::Frame::new()
             .fill(self.colors.surface_panel)
@@ -153,8 +160,12 @@ impl TextRole {
 }
 
 pub fn install_theme(ctx: &egui::Context) {
+    install_theme_with(ctx, DesignSystem::default());
+}
+
+pub fn install_theme_with(ctx: &egui::Context, ds: DesignSystem) {
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("ir_mixer_design_system"), ds));
     install_fonts(ctx);
-    let ds = DesignSystem::default();
     let c = ds.colors;
     let m = ds.metrics;
     let mut style = (*ctx.style_of(egui::Theme::Dark)).clone();
@@ -282,5 +293,19 @@ fn widget_visual(
         corner_radius: CornerRadius::same(radius),
         fg_stroke: Stroke::new(1.0, foreground),
         expansion: 0.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_design_system_is_available_to_widgets() {
+        let context = egui::Context::default();
+        let mut custom = DesignSystem::default();
+        custom.colors.accent = Color32::from_rgb(1, 2, 3);
+        install_theme_with(&context, custom);
+        assert_eq!(DesignSystem::from_context(&context), custom);
     }
 }

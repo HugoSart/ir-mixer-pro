@@ -79,6 +79,8 @@ impl CardsDemo {
             buffer_sizes: &["128 samples", "256 samples", "512 samples"],
             buffer_size: self.selections[3],
             monitoring: self.monitoring,
+            standalone_routing: true,
+            content_status: ContentStatusView::Ready,
         };
         let actions = InputSourceCard::new(id, &view).width(320.0).show(ui).inner;
         for action in actions {
@@ -134,6 +136,7 @@ struct DummyIrSlot {
 
 pub struct IrRackDemo {
     slots: Vec<DummyIrSlot>,
+    selected: Option<u64>,
     next_id: u64,
     last_action: String,
 }
@@ -149,6 +152,7 @@ impl Default for IrRackDemo {
                 dummy_slot(5, "421_Rear.wav", -18.0, 15, 0.0, false),
                 dummy_slot(6, "Room_Far.wav", -20.0, 0, 0.0, false),
             ],
+            selected: Some(1),
             next_id: 7,
             last_action: "Six dummy IR slots are available for review.".into(),
         }
@@ -177,9 +181,13 @@ impl IrRackDemo {
                 normalize: slot.normalize,
                 soloed: slot.soloed,
                 muted: slot.muted,
+                load_status: ContentStatusView::Ready,
             })
             .collect::<Vec<_>>();
-        let view = IrRackCardView { slots: &views };
+        let view = IrRackCardView {
+            slots: &views,
+            selected: self.selected,
+        };
         for action in IrRackCard::new("ir_rack_card", &view)
             .width(width)
             .rack_height(360.0)
@@ -212,7 +220,10 @@ impl IrRackDemo {
                     slot.normalize = true;
                 }
             }
+            IrRackAction::Select { id } => self.selected = Some(id),
             IrRackAction::Remove { id } => self.slots.retain(|slot| slot.id != id),
+            IrRackAction::MoveUp { id } => self.move_slot(id, -1),
+            IrRackAction::MoveDown { id } => self.move_slot(id, 1),
             IrRackAction::Browse { id } => with_slot(&mut self.slots, id, |slot| {
                 slot.filename = if slot.filename.ends_with("_alt.wav") {
                     slot.filename.trim_end_matches("_alt.wav").to_owned() + ".wav"
@@ -245,6 +256,17 @@ impl IrRackDemo {
             }
             IrRackAction::SetMute { id, muted } => {
                 with_slot(&mut self.slots, id, |slot| slot.muted = muted)
+            }
+        }
+    }
+
+    fn move_slot(&mut self, id: u64, offset: isize) {
+        if let Some(index) = self.slots.iter().position(|slot| slot.id == id) {
+            let target = index
+                .saturating_add_signed(offset)
+                .min(self.slots.len().saturating_sub(1));
+            if target != index {
+                self.slots.swap(index, target);
             }
         }
     }
@@ -333,6 +355,7 @@ impl AnalysisDemo {
             ir_length: "2048 samples (42.7 ms)",
             latency: "5.3 ms",
             cpu: "2.1%",
+            content_status: ContentStatusView::Ready,
         };
         for action in AnalysisPreviewCard::new("analysis_card", &view)
             .width(width)
@@ -411,6 +434,7 @@ impl OutputDemo {
             limit_output: self.limit_output,
             levels_db: &levels,
             peaks_db: &[-1.8, -2.5],
+            standalone_routing: true,
         };
         for action in OutputCard::new("output_card", &view)
             .width(320.0)
@@ -474,7 +498,11 @@ impl ExportDemo {
             length: self.selections[3],
             trim_to_length: self.trim,
             normalize: self.normalize,
-            exporting: self.exporting_until.is_some_and(|until| now < until),
+            status: if self.exporting_until.is_some_and(|until| now < until) {
+                ExportStatusView::Exporting { progress: 0.45 }
+            } else {
+                ExportStatusView::Idle
+            },
         };
         for action in ExportMixedIrCard::new("export_card", &view)
             .width(320.0)

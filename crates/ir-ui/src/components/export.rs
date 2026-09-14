@@ -1,4 +1,4 @@
-use super::CardFrame;
+use super::{CardFrame, ExportStatusView};
 use crate::{DesignSystem, TextRole, widgets::*};
 use egui::{InnerResponse, RichText, Ui};
 use egui_lucide::Lucide;
@@ -16,7 +16,7 @@ pub struct ExportMixedIrCardView<'a> {
     pub length: usize,
     pub trim_to_length: bool,
     pub normalize: bool,
-    pub exporting: bool,
+    pub status: ExportStatusView<'a>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,7 +58,7 @@ impl<'a> ExportMixedIrCard<'a> {
                 .width(self.width)
                 .show(ui, |ui| {
                     let v = self.view;
-                    let ds = DesignSystem::default();
+                    let ds = DesignSystem::from_context(ui.ctx());
                     let mut actions = Vec::new();
                     ui.label(
                         RichText::new("Output File")
@@ -139,17 +139,20 @@ impl<'a> ExportMixedIrCard<'a> {
                         actions.push(ExportMixedIrAction::SetNormalize(normalize));
                     }
                     ui.add_space(4.0);
+                    export_status(ui, v.status);
                     if ui
                         .add(
-                            ActionButton::new(if v.exporting {
-                                "Exporting…"
-                            } else {
-                                "Export IR"
-                            })
+                            ActionButton::new(
+                                if matches!(v.status, ExportStatusView::Exporting { .. }) {
+                                    "Exporting…"
+                                } else {
+                                    "Export IR"
+                                },
+                            )
                             .kind(ButtonKind::Primary)
                             .icon(Lucide::Download)
                             .min_width(ui.available_width())
-                            .enabled(!v.exporting),
+                            .enabled(!matches!(v.status, ExportStatusView::Exporting { .. })),
                         )
                         .clicked()
                     {
@@ -159,6 +162,36 @@ impl<'a> ExportMixedIrCard<'a> {
                 })
         })
         .inner
+    }
+}
+
+fn export_status(ui: &mut Ui, status: ExportStatusView<'_>) {
+    let ds = DesignSystem::from_context(ui.ctx());
+    let (message, color, progress) = match status {
+        ExportStatusView::Idle => return,
+        ExportStatusView::Exporting { progress } => (
+            "Preparing mixed IR…",
+            ds.colors.accent_focus,
+            Some(progress.clamp(0.0, 1.0)),
+        ),
+        ExportStatusView::Complete(message) => (message, ds.colors.status_success, None),
+        ExportStatusView::Error(message) => (message, ds.colors.status_danger, None),
+    };
+    ui.label(
+        RichText::new(message)
+            .font(TextRole::Metadata.font_id())
+            .color(color),
+    );
+    if let Some(progress) = progress {
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 3.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(rect, 1.0, ds.colors.surface_control);
+        let filled = egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(rect.left() + rect.width() * progress, rect.bottom()),
+        );
+        ui.painter().rect_filled(filled, 1.0, ds.colors.accent);
     }
 }
 

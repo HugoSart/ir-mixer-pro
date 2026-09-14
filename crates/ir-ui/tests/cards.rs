@@ -40,6 +40,8 @@ fn harness(mode: SourceMode, scale: f32) -> Harness<'static, State> {
                     buffer_sizes: &["128 samples", "256 samples"],
                     buffer_size: 0,
                     monitoring: false,
+                    standalone_routing: true,
+                    content_status: ContentStatusView::Ready,
                 };
                 state.actions.extend(
                     InputSourceCard::new("card", &view)
@@ -135,6 +137,7 @@ fn output_export_harness(scale: f32) -> Harness<'static, OutputExportState> {
                         limit_output: true,
                         levels_db: &[-10.0, -12.0],
                         peaks_db: &[-1.8, -2.5],
+                        standalone_routing: true,
                     };
                     state.output_actions.extend(
                         OutputCard::new("output", &output)
@@ -156,7 +159,7 @@ fn output_export_harness(scale: f32) -> Harness<'static, OutputExportState> {
                         length: 0,
                         trim_to_length: true,
                         normalize: true,
-                        exporting: false,
+                        status: ExportStatusView::Idle,
                     };
                     state.export_actions.extend(
                         ExportMixedIrCard::new("export", &export)
@@ -247,6 +250,7 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         normalize: true,
                         soloed: false,
                         muted: false,
+                        load_status: ContentStatusView::Ready,
                     },
                     IrRackSlotView {
                         id: 2,
@@ -264,14 +268,21 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         normalize: true,
                         soloed: false,
                         muted: false,
+                        load_status: ContentStatusView::Ready,
                     },
                 ];
                 state.actions.extend(
-                    IrRackCard::new("rack", &IrRackCardView { slots: &slots })
-                        .width(900.0)
-                        .rack_height(300.0)
-                        .show(ui)
-                        .inner,
+                    IrRackCard::new(
+                        "rack",
+                        &IrRackCardView {
+                            slots: &slots,
+                            selected: Some(1),
+                        },
+                    )
+                    .width(900.0)
+                    .rack_height(300.0)
+                    .show(ui)
+                    .inner,
                 );
             },
             IrRackState {
@@ -288,6 +299,8 @@ fn ir_rack_emits_actions_without_mutating_slots() {
     h.run();
     h.get_by_label("Enable York_Mix01.wav").click();
     h.run();
+    h.get_by_label("York_Room.wav").click();
+    h.run();
     assert_eq!(
         h.state().actions,
         vec![
@@ -296,6 +309,7 @@ fn ir_rack_emits_actions_without_mutating_slots() {
                 id: 1,
                 enabled: false,
             },
+            IrRackAction::Select { id: 2 },
         ]
     );
 }
@@ -363,6 +377,7 @@ fn analysis_harness(scale: f32) -> Harness<'static, AnalysisState> {
                     ir_length: "2048 samples (42.7 ms)",
                     latency: "5.3 ms",
                     cpu: "2.1%",
+                    content_status: ContentStatusView::Ready,
                 };
                 state.actions.extend(
                     AnalysisPreviewCard::new("analysis", &view)

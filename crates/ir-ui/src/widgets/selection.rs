@@ -1,4 +1,4 @@
-use egui::{
+﻿use egui::{
     Align2, AsId, ComboBox, Id, Response, RichText, Sense, Stroke, Ui, Vec2, Widget, WidgetInfo,
     WidgetType, pos2,
 };
@@ -28,7 +28,7 @@ impl<'a> Checkbox<'a> {
 
 impl Widget for Checkbox<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let checkbox_size = 16.0;
         let height = ds.metrics.control_compact_height;
         let label_galley = self.show_label.then(|| {
@@ -287,7 +287,7 @@ impl<'a> ListSelector<'a> {
 
 impl Widget for ListSelector<'_> {
     fn ui(mut self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         if !self.items.is_empty() {
             *self.selected = (*self.selected).min(self.items.len() - 1);
         }

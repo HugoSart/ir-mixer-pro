@@ -1,4 +1,4 @@
-use egui::{Button, Color32, CornerRadius, Response, RichText, Stroke, Ui, Vec2, Widget};
+﻿use egui::{Button, Color32, CornerRadius, Response, RichText, Stroke, Ui, Vec2, Widget};
 use egui_lucide::Lucide;
 
 use crate::{DesignSystem, TextRole};
@@ -74,7 +74,7 @@ impl<'a> ActionButton<'a> {
 
 impl Widget for ActionButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let c = ds.colors;
         let active = self.selected || self.kind == ButtonKind::Primary;
         let foreground = if active {
@@ -168,7 +168,7 @@ impl<'a> IconButton<'a> {
 
 impl Widget for IconButton<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let c = ds.colors;
         let active = self.selected || self.kind == ButtonKind::Primary;
         let foreground = if active {
@@ -236,7 +236,7 @@ impl<'a> ChannelToggle<'a> {
 
 impl Widget for ChannelToggle<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let c = ds.colors;
         let selected = *self.value;
         let foreground = if selected {
@@ -291,7 +291,7 @@ impl Widget for SegmentedControl<'_> {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let last = self.labels.len().saturating_sub(1);
-            let radius = DesignSystem::default().metrics.radius_control;
+            let radius = DesignSystem::from_context(ui.ctx()).metrics.radius_control;
             for (index, label) in self.labels.iter().enumerate() {
                 let corner_radius = segmented_corner_radius(index, last + 1, radius);
                 let response = ui.add(
@@ -334,7 +334,7 @@ fn segmented_corner_radius(index: usize, len: usize, radius: u8) -> CornerRadius
 }
 
 pub fn section_header(ui: &mut Ui, number: u8, title: &str) {
-    let ds = DesignSystem::default();
+    let ds = DesignSystem::from_context(ui.ctx());
     ui.horizontal(|ui| {
         let badge_size = Vec2::splat(28.0);
         let (rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());

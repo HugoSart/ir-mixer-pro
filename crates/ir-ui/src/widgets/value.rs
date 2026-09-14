@@ -1,4 +1,4 @@
-use std::f32::consts::{PI, TAU};
+﻿use std::f32::consts::{PI, TAU};
 
 use egui::{Align2, Color32, DragValue, Response, Sense, Stroke, Ui, Vec2, Widget, pos2, vec2};
 
@@ -10,7 +10,7 @@ pub struct AudioKnob<'a> {
     default: f32,
     label: &'a str,
     suffix: &'a str,
-    accent: Color32,
+    accent: Option<Color32>,
     formatter: fn(f32, &str) -> String,
     small: bool,
 }
@@ -24,7 +24,7 @@ impl<'a> AudioKnob<'a> {
             default,
             label,
             suffix: "",
-            accent: DesignSystem::default().colors.accent,
+            accent: None,
             formatter: format_value,
             small: false,
         }
@@ -47,7 +47,7 @@ impl<'a> AudioKnob<'a> {
     }
 
     pub fn accent(mut self, color: Color32) -> Self {
-        self.accent = color;
+        self.accent = Some(color);
         self
     }
 
@@ -59,7 +59,8 @@ impl<'a> AudioKnob<'a> {
 
 impl Widget for AudioKnob<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
+        let accent = self.accent.unwrap_or(ds.colors.accent);
         let size = if self.small {
             vec2(40.0, 48.0)
         } else {
@@ -121,7 +122,7 @@ impl Widget for AudioKnob<'_> {
             radius + 3.0,
             start,
             sweep * normalized,
-            self.accent,
+            accent,
             3.0,
         );
         let angle = start + sweep * normalized;
@@ -210,7 +211,7 @@ impl<'a> MiniFader<'a> {
 
 impl Widget for MiniFader<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let desired = vec2(116.0, 24.0);
         let (rect, mut response) = ui.allocate_exact_size(desired, Sense::click_and_drag());
         if response.double_clicked() {
@@ -315,7 +316,7 @@ impl<'a> SampleDelayEditor<'a> {
 
 impl Widget for SampleDelayEditor<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         let milliseconds = samples_to_milliseconds(*self.samples, self.sample_rate);
         if self.compact {
             let response = ui.add_sized(

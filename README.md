@@ -3,11 +3,22 @@
 IR Mixer Pro is a Rust desktop application and audio plugin for loading,
 blending, previewing, analyzing, and exporting guitar cabinet impulse responses.
 
-The project is currently in its UI-first phase. The reusable egui design system
-and native component gallery are implemented; the application shell, audio
-backend, convolution engine, VST3, and CLAP integrations come next.
+The project is currently in its UI-first phase. The reusable egui design system,
+native component gallery, complete responsive application page, shared
+application model, and deterministic mock backend are implemented. Native audio,
+convolution, VST3, and CLAP integrations come next.
 
-![Approved IR Mixer Pro interface](docs/mockups/main-screen.png)
+![Approved IR Mixer Pro interface](docs/mockups/main-screen-v4.png)
+
+## Run the complete mock application
+
+```powershell
+cargo run
+```
+
+The mock application exercises the complete interface without opening files or
+audio devices. Transport, meters, analysis traces, IR editing and ordering,
+preset selection, responsive layouts, and export progress are simulated.
 
 ## Run the component gallery
 
@@ -23,14 +34,11 @@ checkboxes, dropdown and list selectors, toggles, value controls, waveforms,
 meters, graphs, and component states. Its icon-only actions include both
 outlined and borderless variants.
 
-Running plain `cargo run` starts the root placeholder binary in `src/main.rs`,
-not the component gallery.
-
 The **Cards** tab shows Input Source (Preview and Live), a scrollable multi-IR
-rack, Output, and Export Mixed IR cards. Controls update dummy gallery state;
-Browse cycles example filenames and Play advances a simulated clock. The Output
-meter is animated; device, file, and export actions are only simulated—no audio
-devices or files are opened.
+rack, Analysis & Preview, Output, and Export Mixed IR cards. Controls update
+dummy gallery state; Browse cycles example filenames and Play advances a
+simulated clock. The Output meter is animated; device, file, and export actions
+are only simulated—no audio devices or files are opened.
 
 ## Development checks
 
@@ -58,10 +66,11 @@ cargo test -p ir-ui
 ## Repository layout
 
 ```text
-crates/ir-ui/       Reusable theme, palette, fonts, and egui widgets
+crates/ir-app/      Serializable application state, commands, and mock backend
+crates/ir-ui/       Reusable theme, widgets, cards, and complete application page
 tools/ui-gallery/   Native Storybook-style component gallery
 docs/               Product, architecture, and UI specifications
-src/main.rs         Placeholder for the future standalone application
+src/main.rs         Complete mock standalone application launcher
 ```
 
 Start with these documents:

@@ -3,7 +3,7 @@
 ## 1. Purpose and Source of Truth
 
 This document is the normative visual contract for IR Mixer. The approved
-[`main-screen.png`](mockups/main-screen.png) mockup is the visual source of truth.
+[`main-screen-v4.png`](mockups/main-screen-v4.png) mockup is the visual source of truth.
 [`UI_DESIGN.md`](UI_DESIGN.md) defines product layout and behavior; this document
 defines how the interface is rendered.
 
@@ -55,8 +55,9 @@ belongs to interaction, not to audio-channel identity.
 ### 2.4 IR identity palette
 
 IR colors are categorical identities only. A red, yellow, or orange IR is not an
-error or warning. Apply the assigned color consistently to the IR waveform, fader
-fill, meter accent, graph curve, and legend marker.
+error or warning. Apply the assigned color consistently to the IR waveform,
+meter accent, graph curve, and legend marker. Compact Level and Pan knobs remain
+neutral.
 
 | Index | Name | Value |
 | ---: | --- | --- |
@@ -208,9 +209,11 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
 | Spacing and sizes | `DesignSystem::metrics` |
 | Typography roles | `TextRole` |
 
-The component gallery is the executable reference for these tokens. Any deliberate
-visual change must update this document, the Rust token, and the affected snapshot
-in the same change.
+The component gallery is the isolated reference for these tokens, while the root
+mock application is the composed-page reference. Any deliberate visual change
+must update this document, the Rust token, and the affected snapshot in the same
+change. Use `install_with` to install a customized `DesignSystem`; widgets read
+the active theme from the egui context.
 
 ## 8. Component Gallery Workflow
 
@@ -249,6 +252,6 @@ $env:UPDATE_SNAPSHOTS = "force"
 cargo test -p ir-ui
 ```
 
-The gallery is intentionally limited to isolated components in this milestone.
-Application panels, the full window shell, mock backend, and DSP integration begin
-only after the gallery and its design tokens are approved.
+The gallery remains intentionally limited to isolated components. The complete
+page is implemented by `ir_ui::app::AppPage`, driven by `ir_app::AppSnapshot`
+and `AppCommand`. DSP and native I/O remain outside both UI layers.

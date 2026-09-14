@@ -67,17 +67,17 @@ Numeric controls should use consistent width and alignment.
 
 ## 3. Main Window Structure
 
-Suggested large-screen structure:
+Approved large-screen structure:
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ Top Bar: Logo / Project / Mix Preset / Save / Settings / CPU            │
+│ Top Bar: Logo / Project / Preset / Save / Settings / CPU                │
 ├───────────────┬──────────────────────────────────────┬────────────────────┤
-│ Source        │ N-IR Mixer Rack                     │ Output / Presets    │
+│ Source        │ N-IR Mixer Rack                     │ Output / Export     │
 │               │                                      │                    │
 │ Preview/Live  │ IR Slot 1                            │ Master meter       │
 │ transport     │ IR Slot 2                            │ Output gain        │
-│ device input  │ IR Slot 3                            │ Mix Presets        │
+│ device input  │ IR Slot 3                            │ Export Controls    │
 │ waveform      │ ...                                  │ Export             │
 │               │ + Add IR                             │                    │
 ├───────────────┴──────────────────────────────────────┴────────────────────┤
@@ -87,7 +87,10 @@ Suggested large-screen structure:
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
-The exact panel proportions should adapt to window width.
+The approved v4 layout has no top navigation tabs or separate preset card. At
+wide widths, Input Source sits left of the IR rack, Output and Export form the
+right rail, and Analysis & Preview spans the input and rack columns. The exact
+panel proportions adapt to window width.
 
 ## 4. Top Bar
 
@@ -256,11 +259,9 @@ Contains:
 
 Do not silently process output beyond the configured mix.
 
-## 13. Mix Presets Panel
+## 13. Preset Controls
 
-Label: **Mix Presets**.
-
-Suggested controls:
+Preset controls live only in the compact top bar under **Presets**:
 
 - Preset dropdown / searchable list
 - Previous / next
@@ -387,7 +388,7 @@ ir-ui/src/
 │   ├── ir_rack.rs
 │   ├── ir_slot.rs
 │   ├── output_panel.rs
-│   ├── preset_panel.rs
+│   ├── top_bar.rs
 │   └── export_panel.rs
 └── graphs/
     ├── waveform.rs
@@ -441,7 +442,7 @@ Large width:
 
 - Source left
 - IR rack center
-- Output / presets right
+- Output / Export right
 
 Medium width:
 

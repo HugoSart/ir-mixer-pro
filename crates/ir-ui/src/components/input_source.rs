@@ -1,4 +1,4 @@
-use super::{CardFrame, CardVariant};
+﻿use super::{CardFrame, CardVariant, ContentStatusView};
 use crate::{DesignSystem, TextRole, widgets::*};
 use egui::{InnerResponse, RichText, Ui, vec2};
 use egui_lucide::Lucide;
@@ -38,6 +38,8 @@ pub struct InputSourceCardView<'a> {
     pub buffer_sizes: &'a [&'a str],
     pub buffer_size: usize,
     pub monitoring: bool,
+    pub standalone_routing: bool,
+    pub content_status: ContentStatusView<'a>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,6 +99,7 @@ impl<'a> InputSourceCard<'a> {
                         actions.push(InputSourceAction::SetMode(new_mode));
                     }
                     ui.add_space(4.0);
+                    super::status::status_banner(ui, v.content_status);
                     match v.mode {
                         SourceMode::Preview => self.preview(ui, &mut actions),
                         SourceMode::Live => self.live(ui, &mut actions),
@@ -130,7 +133,7 @@ impl<'a> InputSourceCard<'a> {
     }
     fn preview(&self, ui: &mut Ui, actions: &mut Vec<InputSourceAction>) {
         let v = self.view;
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
         ui.horizontal(|ui| {
             let width = (ui.available_width() - 48.0).max(80.0);
             ds.inset_frame().show(ui, |ui| {
@@ -208,6 +211,13 @@ impl<'a> InputSourceCard<'a> {
     }
     fn live(&self, ui: &mut Ui, actions: &mut Vec<InputSourceAction>) {
         let v = self.view;
+        if !v.standalone_routing {
+            let ds = DesignSystem::from_context(ui.ctx());
+            ds.inset_frame().show(ui, |ui| {
+                ui.label("Audio input and buffer configuration are provided by the plugin host.");
+            });
+            return;
+        }
         for (label, items, selected, action) in [
             (
                 "Input device",

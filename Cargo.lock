@@ -1163,8 +1163,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ir-app"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ir-mixer-pro"
 version = "0.1.0"
+dependencies = [
+ "egui",
+ "egui_extras",
+ "ir-app",
+ "ir-ui",
+ "nice-plug-egui",
+]
 
 [[package]]
 name = "ir-ui"
@@ -1174,6 +1189,7 @@ dependencies = [
  "egui-lucide",
  "egui_extras",
  "egui_kittest",
+ "ir-app",
  "serde",
 ]
 

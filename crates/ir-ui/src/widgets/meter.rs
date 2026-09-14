@@ -7,7 +7,7 @@ pub struct LevelMeter<'a> {
     levels_db: &'a [f32],
     peaks_db: &'a [f32],
     size: Vec2,
-    accent: Color32,
+    accent: Option<Color32>,
 }
 
 impl<'a> LevelMeter<'a> {
@@ -16,7 +16,7 @@ impl<'a> LevelMeter<'a> {
             levels_db,
             peaks_db,
             size: vec2(54.0, 190.0),
-            accent: DesignSystem::default().colors.accent,
+            accent: None,
         }
     }
 
@@ -26,14 +26,15 @@ impl<'a> LevelMeter<'a> {
     }
 
     pub fn accent(mut self, accent: Color32) -> Self {
-        self.accent = accent;
+        self.accent = Some(accent);
         self
     }
 }
 
 impl Widget for LevelMeter<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let ds = DesignSystem::default();
+        let ds = DesignSystem::from_context(ui.ctx());
+        let accent = self.accent.unwrap_or(ds.colors.accent);
         let channel_count = self.levels_db.len().clamp(1, 2);
         let (rect, response) = ui.allocate_exact_size(self.size, Sense::hover());
         ui.painter()
@@ -63,7 +64,7 @@ impl Widget for LevelMeter<'_> {
             let normalized = db_to_unit(self.levels_db[channel]);
             let fill_top = egui::lerp(meter.bottom()..=meter.top(), normalized);
             let fill = egui::Rect::from_min_max(pos2(meter.left(), fill_top), meter.right_bottom());
-            ui.painter().rect_filled(fill, 2.0, self.accent);
+            ui.painter().rect_filled(fill, 2.0, accent);
 
             let peak = self
                 .peaks_db

@@ -193,7 +193,6 @@ Useful comparison modes:
 
 Potential later modes:
 
-- A/B preset comparison
 - Snapshot morphing
 
 ## 8. Analysis
@@ -232,7 +231,8 @@ Optional later:
 
 ## 9. Presets
 
-The UI label should favor **Mix Presets** over a generic `Presets` label.
+Preset selection and save actions live in the compact top bar under the
+**Presets** label. There is no separate preset card.
 
 A preset should store:
 
@@ -356,7 +356,6 @@ Potential post-v1 capabilities:
 - IR trim / crop editor
 - Minimum-phase conversion
 - Room-IR blending helpers
-- Loudness-matched A/B
 - IR tagging and browser
 - Drag-and-drop entire folders
 - Searchable IR library

@@ -1,4 +1,4 @@
-use super::CardFrame;
+﻿use super::{CardFrame, ContentStatusView};
 use crate::{DesignSystem, TextRole, widgets::*};
 use egui::{Color32, InnerResponse, RichText, Stroke, Ui, vec2};
 use egui_lucide::Lucide;
@@ -26,6 +26,7 @@ pub struct AnalysisPreviewCardView<'a> {
     pub ir_length: &'a str,
     pub latency: &'a str,
     pub cpu: &'a str,
+    pub content_status: ContentStatusView<'a>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +112,10 @@ impl<'a> AnalysisPreviewCard<'a> {
                         );
                     },
                     |ui| {
+                        if v.content_status != ContentStatusView::Ready {
+                            super::status::status_banner(ui, v.content_status);
+                            return;
+                        }
                         let mut selected_tab = v.selected_tab;
                         let tabs = [
                             "Frequency Response",
@@ -150,7 +155,7 @@ impl<'a> AnalysisPreviewCard<'a> {
 }
 
 fn graph_with_legend(ui: &mut Ui, traces: &[AnalysisTraceView<'_>], height: f32) {
-    let ds = DesignSystem::default();
+    let ds = DesignSystem::from_context(ui.ctx());
     let graph_curves = traces
         .iter()
         .map(|trace| (trace.values, trace.color))
@@ -196,7 +201,7 @@ fn graph_with_legend(ui: &mut Ui, traces: &[AnalysisTraceView<'_>], height: f32)
 }
 
 fn status_strip(ui: &mut Ui, view: &AnalysisPreviewCardView<'_>) {
-    let ds = DesignSystem::default();
+    let ds = DesignSystem::from_context(ui.ctx());
     ui.with_layout(
         egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center),
         |ui| {
