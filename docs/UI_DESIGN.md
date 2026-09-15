@@ -103,8 +103,14 @@ Contents:
 - Undo / redo later
 - Settings button
 - Optional CPU indicator
+- Standalone-only minimize, maximize / restore, and close controls
 
 The top bar should remain compact.
+
+The standalone build uses borderless native chrome. Empty top-bar space is the
+window drag region, and invisible six-pixel edge handles provide native side and
+corner resizing with the platform resize cursors. Plugin editors omit these
+controls and continue to use their host window.
 
 ## 5. Source Panel
 

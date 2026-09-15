@@ -27,6 +27,7 @@ pub struct AppLayoutConfig {
     pub page_margin: f32,
     pub rack_height: f32,
     pub graph_height: f32,
+    pub lower_card_height: f32,
 }
 
 impl Default for AppLayoutConfig {
@@ -40,6 +41,7 @@ impl Default for AppLayoutConfig {
             page_margin: 8.0,
             rack_height: 460.0,
             graph_height: 260.0,
+            lower_card_height: 560.0,
         }
     }
 }
@@ -72,6 +74,7 @@ impl<'a> AppPage<'a> {
     pub fn show(self, ui: &mut Ui) -> Vec<AppCommand> {
         let ds = DesignSystem::from_context(ui.ctx());
         let mut commands = Vec::new();
+        ui.spacing_mut().item_spacing.y = 0.0;
         egui::Frame::new()
             .fill(ds.colors.surface_toolbar)
             .inner_margin(egui::Margin::symmetric(self.layout.page_margin as i8, 8))
@@ -104,6 +107,9 @@ impl<'a> AppPage<'a> {
             .fill(ds.colors.surface_toolbar)
             .inner_margin(egui::Margin::symmetric(self.layout.page_margin as i8, 8))
             .show(ui, |ui| self.show_status_bar(ui));
+        if self.frontend_mode == FrontendMode::Standalone {
+            crate::native_window::show_resize_handles(ui);
+        }
         commands
     }
 
@@ -117,6 +123,7 @@ impl<'a> AppPage<'a> {
             preset: selected_index(&self.snapshot.presets, &self.snapshot.active_preset),
             dirty: self.snapshot.project.dirty,
             cpu_percent: self.snapshot.cpu_percent,
+            window_controls: self.frontend_mode == FrontendMode::Standalone,
         };
         TopBar::new("application_top_bar", &view)
             .show(ui)
@@ -129,6 +136,34 @@ impl<'a> AppPage<'a> {
                 TopBarAction::SaveAs => Some(AppCommand::SavePresetAs),
                 TopBarAction::Delete => Some(AppCommand::DeletePreset),
                 TopBarAction::OpenSettings => Some(AppCommand::OpenSettings),
+                TopBarAction::BeginWindowDrag => {
+                    crate::native_window::request(
+                        ui.ctx(),
+                        crate::native_window::NativeWindowAction::BeginDrag,
+                    );
+                    None
+                }
+                TopBarAction::MinimizeWindow => {
+                    crate::native_window::request(
+                        ui.ctx(),
+                        crate::native_window::NativeWindowAction::Minimize,
+                    );
+                    None
+                }
+                TopBarAction::ToggleMaximizeWindow => {
+                    crate::native_window::request(
+                        ui.ctx(),
+                        crate::native_window::NativeWindowAction::ToggleMaximize,
+                    );
+                    None
+                }
+                TopBarAction::CloseWindow => {
+                    crate::native_window::request(
+                        ui.ctx(),
+                        crate::native_window::NativeWindowAction::Close,
+                    );
+                    None
+                }
             })
             .collect()
     }
@@ -157,7 +192,11 @@ impl<'a> AppPage<'a> {
                             right_width,
                             self.layout.rack_height + 82.0,
                         ));
-                        commands.extend(self.show_export(ui, right_width));
+                        commands.extend(self.show_export(
+                            ui,
+                            right_width,
+                            self.layout.lower_card_height,
+                        ));
                     },
                 );
                 ui.allocate_ui_with_layout(
@@ -173,7 +212,11 @@ impl<'a> AppPage<'a> {
                             commands.extend(self.show_rack(ui, rack_width));
                             commands.extend(self.show_input(ui, self.layout.source_width));
                         });
-                        commands.extend(self.show_analysis(ui, main_width - self.layout.gap));
+                        commands.extend(self.show_analysis(
+                            ui,
+                            main_width - self.layout.gap,
+                            self.layout.lower_card_height,
+                        ));
                     },
                 );
             });
@@ -190,7 +233,7 @@ impl<'a> AppPage<'a> {
                         ui.set_width(side_width);
                         commands.extend(self.show_input(ui, side_width));
                         commands.extend(self.show_output(ui, side_width, 0.0));
-                        commands.extend(self.show_export(ui, side_width));
+                        commands.extend(self.show_export(ui, side_width, 0.0));
                     },
                 );
                 ui.allocate_ui_with_layout(
@@ -200,7 +243,7 @@ impl<'a> AppPage<'a> {
                         ui.spacing_mut().item_spacing.y = self.layout.gap;
                         ui.set_width(main_width);
                         commands.extend(self.show_rack(ui, main_width));
-                        commands.extend(self.show_analysis(ui, main_width));
+                        commands.extend(self.show_analysis(ui, main_width, 0.0));
                     },
                 );
             });
@@ -217,9 +260,9 @@ impl<'a> AppPage<'a> {
             ScrollArea::horizontal()
                 .id_salt("narrow_analysis")
                 .show(ui, |ui| {
-                    commands.extend(self.show_analysis(ui, narrow_width.max(640.0)));
+                    commands.extend(self.show_analysis(ui, narrow_width.max(640.0), 0.0));
                 });
-            commands.extend(self.show_export(ui, narrow_width.min(440.0)));
+            commands.extend(self.show_export(ui, narrow_width.min(440.0), 0.0));
         }
         commands
     }
@@ -310,7 +353,7 @@ impl<'a> AppPage<'a> {
             .collect()
     }
 
-    fn show_analysis(&self, ui: &mut Ui, width: f32) -> Vec<AppCommand> {
+    fn show_analysis(&self, ui: &mut Ui, width: f32, min_height: f32) -> Vec<AppCommand> {
         let analysis = &self.snapshot.project.analysis;
         let view_modes = labels(&self.snapshot.analysis_view_modes);
         let smoothing = labels(&self.snapshot.smoothing_options);
@@ -347,6 +390,7 @@ impl<'a> AppPage<'a> {
         AnalysisPreviewCard::new("application_analysis", &view)
             .width(width)
             .graph_height(self.layout.graph_height)
+            .min_height(min_height)
             .show(ui)
             .inner
             .into_iter()
@@ -395,7 +439,7 @@ impl<'a> AppPage<'a> {
             .collect()
     }
 
-    fn show_export(&self, ui: &mut Ui, width: f32) -> Vec<AppCommand> {
+    fn show_export(&self, ui: &mut Ui, width: f32, min_height: f32) -> Vec<AppCommand> {
         let export = &self.snapshot.project.export;
         let sample_rates = labels(&self.snapshot.sample_rates);
         let bit_depths = labels(&self.snapshot.bit_depths);
@@ -423,6 +467,7 @@ impl<'a> AppPage<'a> {
         };
         ExportMixedIrCard::new("application_export", &view)
             .width(width)
+            .min_height(min_height)
             .show(ui)
             .inner
             .into_iter()

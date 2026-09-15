@@ -39,10 +39,11 @@ impl App for MockApplication {
     fn build(
         &mut self,
         egui_ctx: egui::Context,
-        _frame: &mut Frame,
+        frame: &mut Frame,
     ) -> Result<(), nice_plug_egui::baseview::HandlerError> {
         egui_extras::install_image_loaders(&egui_ctx);
         ir_ui::install(&egui_ctx);
+        ir_ui::native_window::configure_borderless(&egui_ctx, frame.baseview_window());
         Ok(())
     }
 

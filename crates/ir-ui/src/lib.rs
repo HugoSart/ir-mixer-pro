@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod components;
+pub mod native_window;
 pub mod palette;
 pub mod theme;
 pub mod widgets;

@@ -8,7 +8,11 @@ egui.workspace = true
 egui-lucide.workspace = true
 image.workspace = true
 ir-app = { path = "../ir-app" }
+raw-window-handle.workspace = true
 serde.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
 
 [dev-dependencies]
 egui_extras.workspace = true

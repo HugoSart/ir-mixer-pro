@@ -35,6 +35,7 @@ pub struct ExportMixedIrCard<'a> {
     view: &'a ExportMixedIrCardView<'a>,
     id: egui::Id,
     width: f32,
+    min_height: f32,
 }
 
 impl<'a> ExportMixedIrCard<'a> {
@@ -43,6 +44,7 @@ impl<'a> ExportMixedIrCard<'a> {
             view,
             id: egui::Id::new(id),
             width: 300.0,
+            min_height: 0.0,
         }
     }
 
@@ -51,11 +53,17 @@ impl<'a> ExportMixedIrCard<'a> {
         self
     }
 
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.min_height = height.max(0.0);
+        self
+    }
+
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<ExportMixedIrAction>> {
         ui.push_id(self.id, |ui| {
             CardFrame::new("Export Mixed IR")
                 .icon(Lucide::Download)
                 .width(self.width)
+                .min_height(self.min_height)
                 .show(ui, |ui| {
                     let v = self.view;
                     let ds = DesignSystem::from_context(ui.ctx());

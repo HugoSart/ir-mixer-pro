@@ -10,6 +10,7 @@ pub struct TopBarView<'a> {
     pub preset: usize,
     pub dirty: bool,
     pub cpu_percent: f32,
+    pub window_controls: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,6 +20,10 @@ pub enum TopBarAction {
     SaveAs,
     Delete,
     OpenSettings,
+    BeginWindowDrag,
+    MinimizeWindow,
+    ToggleMaximizeWindow,
+    CloseWindow,
 }
 
 pub struct TopBar<'a> {
@@ -92,6 +97,32 @@ impl<'a> TopBar<'a> {
                     });
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.view.window_controls {
+                            if ui
+                                .add(IconButton::new(Lucide::X, "Close").kind(ButtonKind::Ghost))
+                                .clicked()
+                            {
+                                actions.push(TopBarAction::CloseWindow);
+                            }
+                            if ui
+                                .add(
+                                    IconButton::new(Lucide::Square, "Maximize or restore")
+                                        .kind(ButtonKind::Ghost),
+                                )
+                                .clicked()
+                            {
+                                actions.push(TopBarAction::ToggleMaximizeWindow);
+                            }
+                            if ui
+                                .add(
+                                    IconButton::new(Lucide::Minus, "Minimize")
+                                        .kind(ButtonKind::Ghost),
+                                )
+                                .clicked()
+                            {
+                                actions.push(TopBarAction::MinimizeWindow);
+                            }
+                        }
                         if ui
                             .add(
                                 IconButton::new(Lucide::Settings, "Open settings")
@@ -141,6 +172,18 @@ impl<'a> TopBar<'a> {
                                 .font(TextRole::Metadata.font_id())
                                 .color(ds.colors.text_muted),
                         );
+                        if self.view.window_controls {
+                            let drag = ui.allocate_response(
+                                egui::vec2(ui.available_width(), bar_size.y),
+                                egui::Sense::click_and_drag(),
+                            );
+                            if drag.drag_started() {
+                                actions.push(TopBarAction::BeginWindowDrag);
+                            }
+                            if drag.double_clicked() {
+                                actions.push(TopBarAction::ToggleMaximizeWindow);
+                            }
+                        }
                     });
                 },
             );

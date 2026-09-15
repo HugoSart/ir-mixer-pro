@@ -1192,7 +1192,9 @@ dependencies = [
  "egui_kittest",
  "image",
  "ir-app",
+ "raw-window-handle",
  "serde",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

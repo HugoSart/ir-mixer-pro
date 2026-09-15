@@ -1,4 +1,4 @@
-﻿use super::{CardFrame, ContentStatusView};
+use super::{CardFrame, ContentStatusView};
 use crate::{DesignSystem, TextRole, widgets::*};
 use egui::{Color32, InnerResponse, RichText, Stroke, Ui, vec2};
 use egui_lucide::Lucide;
@@ -41,6 +41,7 @@ pub struct AnalysisPreviewCard<'a> {
     id: egui::Id,
     width: f32,
     graph_height: f32,
+    min_height: f32,
 }
 
 impl<'a> AnalysisPreviewCard<'a> {
@@ -50,6 +51,7 @@ impl<'a> AnalysisPreviewCard<'a> {
             id: egui::Id::new(id),
             width: 900.0,
             graph_height: 240.0,
+            min_height: 0.0,
         }
     }
 
@@ -65,6 +67,11 @@ impl<'a> AnalysisPreviewCard<'a> {
         self
     }
 
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.min_height = height.max(0.0);
+        self
+    }
+
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<AnalysisPreviewAction>> {
         ui.push_id(self.id, |ui| {
             let actions = RefCell::new(Vec::new());
@@ -72,52 +79,23 @@ impl<'a> AnalysisPreviewCard<'a> {
             CardFrame::new("Analysis & Preview")
                 .icon(Lucide::AudioLines)
                 .width(self.width)
+                .min_height(self.min_height)
                 .show_with_header(
                     ui,
-                    |ui| {
-                        ui.allocate_ui_with_layout(
-                            vec2(264.0, 56.0),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                let mut view_mode = v.view_mode;
-                                ui.add(
-                                    DropdownSelector::new(
-                                        "analysis_view_mode",
-                                        v.view_modes,
-                                        &mut view_mode,
-                                    )
-                                    .width(140.0)
-                                    .label("View", SelectorLabelPosition::Top),
-                                );
-                                if view_mode != v.view_mode {
-                                    actions
-                                        .borrow_mut()
-                                        .push(AnalysisPreviewAction::SetViewMode(view_mode));
-                                }
-
-                                let mut smoothing = v.smoothing;
-                                ui.add(
-                                    DropdownSelector::new(
-                                        "analysis_smoothing",
-                                        v.smoothing_options,
-                                        &mut smoothing,
-                                    )
-                                    .width(116.0)
-                                    .label("Smoothing", SelectorLabelPosition::Top),
-                                );
-                                if smoothing != v.smoothing {
-                                    actions
-                                        .borrow_mut()
-                                        .push(AnalysisPreviewAction::SetSmoothing(smoothing));
-                                }
-                            },
-                        );
-                    },
+                    |_| {},
                     |ui| {
                         if v.content_status != ContentStatusView::Ready {
                             super::status::status_banner(ui, v.content_status);
                             return;
                         }
+
+                        let graph_height = if self.min_height > 0.0 {
+                            // The tab/control band and compact metrics strip share
+                            // the remaining fixed-height card space.
+                            (ui.available_height() - 138.0).max(self.graph_height)
+                        } else {
+                            self.graph_height
+                        };
                         let mut selected_tab = v.selected_tab;
                         let tabs = [
                             "Frequency Response",
@@ -127,20 +105,60 @@ impl<'a> AnalysisPreviewCard<'a> {
                         ];
                         TabViewer::new(&tabs, &mut selected_tab)
                             .tab_min_width(148.0)
-                            .min_content_height(self.graph_height + 16.0)
-                            .show(ui, |ui, active| match active {
-                                0 => graph_with_legend(ui, v.frequency_traces, self.graph_height),
-                                1 => {
+                            .min_content_height(graph_height + 16.0)
+                            .show_with_header(
+                                ui,
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = 8.0;
+                                    let controls_width = 140.0 + 8.0 + 116.0;
+                                    ui.add_space((ui.available_width() - controls_width).max(0.0));
+
+                                    let mut view_mode = v.view_mode;
                                     ui.add(
-                                        WaveformView::new(v.impulse_waveform, v.impulse_color)
-                                            .size(vec2(ui.available_width(), self.graph_height))
-                                            .label("Combined impulse response")
-                                            .render_mode(WaveformRenderMode::Signed),
+                                        DropdownSelector::new(
+                                            "analysis_view_mode",
+                                            v.view_modes,
+                                            &mut view_mode,
+                                        )
+                                        .width(140.0)
+                                        .label("View", SelectorLabelPosition::Top),
                                     );
-                                }
-                                2 => graph_with_legend(ui, v.phase_traces, self.graph_height),
-                                _ => graph_with_legend(ui, v.spectrum_traces, self.graph_height),
-                            });
+                                    if view_mode != v.view_mode {
+                                        actions
+                                            .borrow_mut()
+                                            .push(AnalysisPreviewAction::SetViewMode(view_mode));
+                                    }
+
+                                    let mut smoothing = v.smoothing;
+                                    ui.add(
+                                        DropdownSelector::new(
+                                            "analysis_smoothing",
+                                            v.smoothing_options,
+                                            &mut smoothing,
+                                        )
+                                        .width(116.0)
+                                        .label("Smoothing", SelectorLabelPosition::Top),
+                                    );
+                                    if smoothing != v.smoothing {
+                                        actions
+                                            .borrow_mut()
+                                            .push(AnalysisPreviewAction::SetSmoothing(smoothing));
+                                    }
+                                },
+                                |ui, active| match active {
+                                    0 => graph_with_legend(ui, v.frequency_traces, graph_height),
+                                    1 => {
+                                        ui.add(
+                                            WaveformView::new(v.impulse_waveform, v.impulse_color)
+                                                .size(vec2(ui.available_width(), graph_height))
+                                                .label("Combined impulse response")
+                                                .render_mode(WaveformRenderMode::Signed),
+                                        );
+                                    }
+                                    2 => graph_with_legend(ui, v.phase_traces, graph_height),
+                                    _ => graph_with_legend(ui, v.spectrum_traces, graph_height),
+                                },
+                            );
                         if selected_tab != v.selected_tab {
                             actions
                                 .borrow_mut()
@@ -204,7 +222,8 @@ fn graph_with_legend(ui: &mut Ui, traces: &[AnalysisTraceView<'_>], height: f32)
 
 fn status_strip(ui: &mut Ui, view: &AnalysisPreviewCardView<'_>) {
     let ds = DesignSystem::from_context(ui.ctx());
-    ui.with_layout(
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), 36.0),
         egui::Layout::left_to_right(egui::Align::Center).with_main_align(egui::Align::Center),
         |ui| {
             for (index, (label, value)) in [

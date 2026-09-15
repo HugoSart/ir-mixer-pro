@@ -1,4 +1,4 @@
-﻿use crate::{DesignSystem, TextRole, widgets::ActionButton};
+use crate::{DesignSystem, TextRole, widgets::ActionButton};
 use egui::{CornerRadius, Response, RichText, Ui, Vec2};
 
 /// A controlled tab strip with one shared inset content pane.
@@ -32,6 +32,15 @@ impl<'a> TabViewer<'a> {
     }
 
     pub fn show(self, ui: &mut Ui, content: impl FnOnce(&mut Ui, usize)) -> Response {
+        self.show_with_header(ui, |_| {}, content)
+    }
+
+    pub fn show_with_header(
+        self,
+        ui: &mut Ui,
+        header_actions: impl FnOnce(&mut Ui),
+        content: impl FnOnce(&mut Ui, usize),
+    ) -> Response {
         let ds = DesignSystem::from_context(ui.ctx());
         if self.labels.is_empty() {
             *self.selected = 0;
@@ -43,24 +52,29 @@ impl<'a> TabViewer<'a> {
             let content_spacing_y = ui.spacing().item_spacing.y;
             ui.spacing_mut().item_spacing.y = 0.0;
             let mut response: Option<Response> = None;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = ds.metrics.space_xs;
-                for (index, label) in self.labels.iter().enumerate() {
-                    let tab_response = ui.add(
-                        ActionButton::new(label)
-                            .selected(*self.selected == index)
-                            .min_width(self.tab_min_width)
-                            .corner_radius(tab_corner_radius(ds.metrics.radius_control)),
-                    );
-                    if tab_response.clicked() {
-                        *self.selected = index;
+            ui.allocate_ui_with_layout(
+                Vec2::new(ui.available_width(), 56.0),
+                egui::Layout::left_to_right(egui::Align::Max),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = ds.metrics.space_xs;
+                    for (index, label) in self.labels.iter().enumerate() {
+                        let tab_response = ui.add(
+                            ActionButton::new(label)
+                                .selected(*self.selected == index)
+                                .min_width(self.tab_min_width)
+                                .corner_radius(tab_corner_radius(ds.metrics.radius_control)),
+                        );
+                        if tab_response.clicked() {
+                            *self.selected = index;
+                        }
+                        response = Some(match response.take() {
+                            Some(previous) => previous.union(tab_response),
+                            None => tab_response,
+                        });
                     }
-                    response = Some(match response.take() {
-                        Some(previous) => previous.union(tab_response),
-                        None => tab_response,
-                    });
-                }
-            });
+                    header_actions(ui);
+                },
+            );
             let pane_width = ui.available_width();
             let pane_response = ui.allocate_ui_with_layout(
                 Vec2::new(
