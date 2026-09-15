@@ -1,4 +1,5 @@
 use ir_app::{AudioBackend, FrontendMode, MockAudioBackend};
+use ir_native::NativeAudioBackend;
 use ir_ui::app::AppPage;
 use nice_plug_egui::{App, EguiWindow, EguiWindowSettings, Frame, baseview::dpi::LogicalSize};
 
@@ -14,28 +15,33 @@ fn main() {
                 width: 880.0,
                 height: 680.0,
             })),
-        MockApplication::default(),
+        IrMixerApplication::default(),
     )
-    .expect("IR Mixer mock application window should open")
+    .expect("IR Mixer application window should open")
     .run_until_closed()
-    .expect("IR Mixer mock application should close cleanly");
+    .expect("IR Mixer application should close cleanly");
 }
 
-struct MockApplication {
-    backend: MockAudioBackend,
+struct IrMixerApplication {
+    backend: Box<dyn AudioBackend>,
     frontend_mode: FrontendMode,
 }
 
-impl Default for MockApplication {
+impl Default for IrMixerApplication {
     fn default() -> Self {
+        let backend: Box<dyn AudioBackend> = if std::env::var_os("IR_MIXER_MOCK").is_some() {
+            Box::new(MockAudioBackend::default())
+        } else {
+            Box::new(NativeAudioBackend::default())
+        };
         Self {
-            backend: MockAudioBackend::default(),
+            backend,
             frontend_mode: FrontendMode::Standalone,
         }
     }
 }
 
-impl App for MockApplication {
+impl App for IrMixerApplication {
     fn build(
         &mut self,
         egui_ctx: egui::Context,

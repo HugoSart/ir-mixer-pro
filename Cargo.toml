@@ -7,11 +7,14 @@ edition = "2024"
 egui.workspace = true
 egui_extras.workspace = true
 ir-app = { path = "crates/ir-app" }
+ir-core = { path = "crates/ir-core" }
+ir-dsp = { path = "crates/ir-dsp" }
+ir-native = { path = "crates/ir-native" }
 ir-ui = { path = "crates/ir-ui" }
 nice-plug-egui.workspace = true
 
 [workspace]
-members = ["crates/ir-app", "crates/ir-ui", "tools/ui-gallery"]
+members = ["crates/ir-app", "crates/ir-core", "crates/ir-dsp", "crates/ir-native", "crates/ir-ui", "tools/ui-gallery"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -24,3 +27,11 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graph
 nice-plug-egui = "=0.5.0"
 egui_kittest = { version = "=0.36.2", features = ["snapshot", "wgpu"] }
 serde = { version = "1.0", features = ["derive"] }
+hound = "3.5.1"
+rustfft = "6.4.1"
+thiserror = "2.0"
+cpal = "0.15.3"
+crossbeam-channel = "0.5.15"
+rfd = "0.15.4"
+rtrb = "0.3.2"
+serde_json = "1.0"

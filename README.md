@@ -3,22 +3,31 @@
 IR Mixer Pro is a Rust desktop application and audio plugin for loading,
 blending, previewing, analyzing, and exporting guitar cabinet impulse responses.
 
-The project is currently in its UI-first phase. The reusable egui design system,
-native component gallery, complete responsive application page, shared
-application model, and deterministic mock backend are implemented. Native audio,
-convolution, VST3, and CLAP integrations come next.
+The native standalone backend, shared partitioned-convolution engine, WAV
+loading, preview playback, analysis, presets, and mixed-IR export are
+implemented. The reusable mock backend remains available for UI development.
+VST3 and CLAP adapters are the next product milestone.
 
 ![Approved IR Mixer Pro interface](docs/mockups/main-screen-v4.png)
 
-## Run the complete mock application
+## Run the native application
 
 ```powershell
 cargo run
 ```
 
-The mock application exercises the complete interface without opening files or
-audio devices. Transport, meters, analysis traces, IR editing and ordering,
-preset selection, responsive layouts, and export progress are simulated.
+Audio streams open when live monitoring or preview playback starts. IR loading,
+resampling, FFT preparation, analysis, preset I/O, and export run outside the
+audio callback.
+
+## Run with the mock backend
+
+```powershell
+$env:IR_MIXER_MOCK = "1"
+cargo run
+```
+
+The mock backend exercises the interface without opening files or devices.
 
 ## Run the component gallery
 
@@ -67,10 +76,13 @@ cargo test -p ir-ui
 
 ```text
 crates/ir-app/      Serializable application state, commands, and mock backend
+crates/ir-core/     WAV handling, resampling, offline transforms, and analysis
+crates/ir-dsp/      Partitioned convolution and real-time mix engine
+crates/ir-native/   CPAL host, workers, persistence, and native backend
 crates/ir-ui/       Reusable theme, widgets, cards, and complete application page
 tools/ui-gallery/   Native Storybook-style component gallery
 docs/               Product, architecture, and UI specifications
-src/main.rs         Complete mock standalone application launcher
+src/main.rs         Native standalone application launcher
 ```
 
 Start with these documents:
@@ -86,5 +98,5 @@ Start with these documents:
 - VST3 plugin
 - CLAP plugin
 
-All targets will share the same application model, DSP engine, and UI component
+All targets share the same application model, DSP engine, and UI component
 library where host constraints allow it.

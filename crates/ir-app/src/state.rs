@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const PRESET_SCHEMA_VERSION: u32 = 1;
+pub const PRESET_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -89,6 +89,8 @@ pub struct IrSlotState {
     pub id: IrId,
     pub filename: String,
     pub file_path: Option<PathBuf>,
+    #[serde(default)]
+    pub file_reference: Option<IrFileReference>,
     pub metadata: String,
     pub color_index: u8,
     pub enabled: bool,
@@ -104,6 +106,17 @@ pub struct IrSlotState {
     pub load_state: ContentState,
     #[serde(skip)]
     pub waveform: Vec<f32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IrFileReference {
+    pub original_path: PathBuf,
+    #[serde(default)]
+    pub relative_path: Option<PathBuf>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    #[serde(default)]
+    pub content_fingerprint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,6 +193,7 @@ pub struct ProjectState {
     pub output: OutputState,
     pub analysis: AnalysisState,
     pub export: ExportSettings,
+    #[serde(skip)]
     pub dirty: bool,
 }
 
@@ -205,6 +219,31 @@ impl PresetDocument {
                 found: self.schema_version,
                 supported: PRESET_SCHEMA_VERSION,
             })
+        }
+    }
+
+    pub fn migrate(mut self) -> Result<Self, PresetVersionError> {
+        match self.schema_version {
+            PRESET_SCHEMA_VERSION => Ok(self),
+            1 => {
+                for slot in &mut self.project.ir_slots {
+                    if slot.file_reference.is_none() {
+                        slot.file_reference =
+                            slot.file_path.clone().map(|original_path| IrFileReference {
+                                original_path,
+                                relative_path: None,
+                                size_bytes: None,
+                                content_fingerprint: None,
+                            });
+                    }
+                }
+                self.schema_version = PRESET_SCHEMA_VERSION;
+                Ok(self)
+            }
+            found => Err(PresetVersionError {
+                found,
+                supported: PRESET_SCHEMA_VERSION,
+            }),
         }
     }
 }

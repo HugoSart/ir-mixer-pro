@@ -179,11 +179,28 @@ Plugin builds may use a specialized adapter around the same application services
   application commands, transient snapshots, and `MockAudioBackend`.
 - `ir-ui` owns reusable widgets/cards and the responsive, mode-aware
   `AppPage`.
-- The root binary hosts `AppPage` with the mock backend.
+- The root binary hosts `AppPage` with the native backend by default and keeps
+  the mock backend available through `IR_MIXER_MOCK=1`.
 - `FrontendMode::Standalone` exposes device routing.
   `FrontendMode::Plugin` replaces it with host-routing status.
-- Native audio, filesystem dialogs, export encoding, and DSP are the next
-  implementation phase.
+- VST3 and CLAP host adapters are the next implementation phase.
+
+### Native backend implementation
+
+The UI-first boundary is now backed by three production crates:
+
+- `ir-core` owns planar floating-point audio buffers, WAV decoding/encoding,
+  deterministic offline transforms, resampling, export mixing, and cached
+  frequency/phase analysis.
+- `ir-dsp` owns the partitioned FFT convolver and the real-time mix engine.
+- `ir-native` implements `NativeAudioBackend`, background preparation/export
+  work, preset storage, and the CPAL standalone host.
+
+The root executable uses `NativeAudioBackend` by default. Setting
+`IR_MIXER_MOCK=1` keeps the deterministic mock available for UI development.
+CPAL streams stay on a dedicated audio-host thread because CPAL stream handles
+are deliberately thread-affine. The window/application object contains only
+Send-safe command handles and snapshots.
 
 ## 5. DSP Architecture
 
@@ -202,6 +219,11 @@ Input
 ### Convolution
 
 Use partitioned FFT convolution rather than whole-buffer offline convolution in the live path.
+
+The current engine uses uniform overlap-add partitions matching the selected
+device quantum. It accepts 64, 128, and 256 sample configurations. A nonuniform
+head/tail convolver remains a measured optimization if the 16-IR performance
+gate cannot be met.
 
 The implementation should be benchmarked before choosing exact partition sizes.
 
@@ -267,6 +289,13 @@ Recommended communication patterns:
 - Preallocated buffers
 
 All code touching the process callback should be reviewed with real-time constraints in mind.
+
+The native implementation uses bounded `rtrb` queues at the callback boundary.
+Prepared convolvers and preview buffers transfer ownership into the callback;
+replaced buffers return through a retirement ring and are dropped on the audio
+host thread. Scalar controls are applied at block boundaries and audible gain,
+pan, polarity, mute/solo, bypass, output gain, and delay transitions are ramped
+or crossfaded.
 
 ## 7. File Loading Pipeline
 
@@ -394,9 +423,21 @@ Encode WAV
 
 Use a background task and surface progress / errors to the UI.
 
+Export order is: resample, per-IR normalization, delay, polarity, gain and pan,
+sum, output gain, trim/pad, channel conversion, optional final normalization,
+then encoding. Mono is `0.5 * (left + right)`. Monitoring bypass and the
+lookahead limiter are not rendered into the exported IR. Integer PCM export is
+rejected if it would clip while normalization is disabled; 32-bit float export
+retains headroom.
+
 ## 13. Preset / State Format
 
 Use a versioned serializable schema.
+
+Schema version 2 adds an IR file reference containing the original path,
+optional preset-relative path, size, and decoded-audio fingerprint. Version 1
+documents migrate in memory before use. Missing files remain as errored slots so
+their mixer settings can be retained and relinked.
 
 Example:
 
@@ -439,8 +480,15 @@ Potential threads / execution contexts:
 - File / preparation worker
 - Analysis worker
 - Export worker
+- Native file-dialog thread
 
 Do not create background threads casually. Prefer a controlled worker pool or clearly owned workers.
+
+Native file dialogs run on their own thread. A synchronous Windows dialog can
+run a nested native message loop; opening one from the egui/baseview callback
+can re-enter the window handler while application state is borrowed. Dialog
+requests and selected paths therefore cross bounded channels, and only one
+dialog may be active at a time.
 
 ## 15. Testing
 

@@ -271,6 +271,11 @@ Suggested hardware-friendly default:
 
 Export must not silently normalize unless the user has enabled it.
 
+Explicit IR and preview normalization targets 0 dBFS. Explicit final export
+normalization targets -1 dBFS. The standalone safety limiter is stereo-linked
+with a -0.3 dBFS ceiling, 1 ms lookahead, and 50 ms release. Its fixed delay is
+included in the displayed latency and it does not alter exported IR data.
+
 If IRs use different sample rates, export processing should resample explicitly using a high-quality resampler.
 
 ## 11. Standalone vs Plugin Behavior
@@ -323,6 +328,9 @@ Goals:
 
 - Stable operation at common 48 kHz configurations.
 - Practical operation at 64–128 sample host / device buffers where the hardware permits it.
+- The standalone default permits 16 enabled real-time IRs. Additional slots may
+  remain stored and disabled; enabling beyond the configured capacity produces
+  an explicit error.
 - Parameter changes should feel immediate.
 - Avoid audio-thread allocations and locks.
 - UI load should not impact audio stability.

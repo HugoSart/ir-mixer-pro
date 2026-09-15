@@ -401,6 +401,7 @@ fn demo_slot(id: u64, filename: &str, gain_db: f32, delay_samples: i32) -> IrSlo
         id: IrId(id),
         filename: filename.into(),
         file_path: Some(format!("Demo IRs/{filename}").into()),
+        file_reference: None,
         metadata: "48.0 kHz | 24-bit | 2048".into(),
         color_index: ((id - 1) % 8) as u8,
         enabled: id <= 4,
@@ -523,5 +524,15 @@ mod tests {
                 supported: PRESET_SCHEMA_VERSION,
             })
         );
+    }
+
+    #[test]
+    fn schema_one_presets_migrate_file_references() {
+        let backend = MockAudioBackend::default();
+        let mut document = PresetDocument::new(backend.snapshot.project.clone());
+        document.schema_version = 1;
+        let migrated = document.migrate().expect("schema one should migrate");
+        assert_eq!(migrated.schema_version, PRESET_SCHEMA_VERSION);
+        assert!(migrated.project.ir_slots[0].file_reference.is_some());
     }
 }
