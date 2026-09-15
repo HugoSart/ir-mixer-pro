@@ -36,10 +36,10 @@ impl Default for AppLayoutConfig {
             medium_breakpoint: 980.0,
             source_width: 280.0,
             right_rail_width: 300.0,
-            gap: 12.0,
-            page_margin: 12.0,
-            rack_height: 410.0,
-            graph_height: 240.0,
+            gap: 8.0,
+            page_margin: 8.0,
+            rack_height: 460.0,
+            graph_height: 260.0,
         }
     }
 }
@@ -79,7 +79,9 @@ impl<'a> AppPage<'a> {
                 ui.allocate_ui_with_layout(
                     egui::vec2(ui.available_width(), 52.0),
                     egui::Layout::top_down(egui::Align::Min),
-                    |ui| commands.extend(self.show_top_bar(ui)),
+                    |ui| {
+                        commands.extend(self.show_top_bar(ui));
+                    },
                 );
             });
 
@@ -132,71 +134,91 @@ impl<'a> AppPage<'a> {
     }
 
     fn show_body(&self, ui: &mut Ui) -> Vec<AppCommand> {
-        let width = ui.available_width();
+        // egui's floating vertical scrollbar occupies the trailing edge of the
+        // scroll area. Reserve that strip so the right rail and its border stay
+        // fully inside the viewport when scrolling is active.
+        let scroll = &ui.spacing().scroll;
+        let scrollbar_reserve = scroll.bar_width + scroll.bar_inner_margin;
+        let width = (ui.available_width() - scrollbar_reserve).max(280.0);
         let mut commands = Vec::new();
         if width >= self.layout.wide_breakpoint {
             let right_width = self.layout.right_rail_width;
-            let main_width = width - right_width - self.layout.gap;
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(main_width);
-                    ui.horizontal_top(|ui| {
-                        commands.extend(self.show_input(ui, self.layout.source_width));
-                        ui.add_space(self.layout.gap);
-                        commands.extend(self.show_rack(
+            let main_width = width - right_width - self.layout.gap + scrollbar_reserve;
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                ui.spacing_mut().item_spacing.x = self.layout.gap;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(right_width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = self.layout.gap;
+                        ui.set_width(right_width);
+                        commands.extend(self.show_output(
                             ui,
-                            main_width - self.layout.source_width - self.layout.gap,
+                            right_width,
+                            self.layout.rack_height + 82.0,
                         ));
-                    });
-                    ui.add_space(self.layout.gap);
-                    commands.extend(self.show_analysis(ui, main_width));
-                });
-                ui.add_space(self.layout.gap);
-                ui.vertical(|ui| {
-                    ui.set_width(right_width);
-                    commands.extend(self.show_output(ui, right_width));
-                    ui.add_space(self.layout.gap);
-                    commands.extend(self.show_export(ui, right_width));
-                });
+                        commands.extend(self.show_export(ui, right_width));
+                    },
+                );
+                ui.allocate_ui_with_layout(
+                    egui::vec2(main_width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = self.layout.gap;
+                        ui.set_width(main_width);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                            ui.spacing_mut().item_spacing.x = self.layout.gap;
+                            let rack_width =
+                                main_width - self.layout.source_width - self.layout.gap;
+                            commands.extend(self.show_rack(ui, rack_width));
+                            commands.extend(self.show_input(ui, self.layout.source_width));
+                        });
+                        commands.extend(self.show_analysis(ui, main_width - self.layout.gap));
+                    },
+                );
             });
         } else if width >= self.layout.medium_breakpoint {
             let side_width = self.layout.right_rail_width;
             let main_width = width - side_width - self.layout.gap;
             ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(side_width);
-                    commands.extend(self.show_input(ui, side_width));
-                    ui.add_space(self.layout.gap);
-                    commands.extend(self.show_output(ui, side_width));
-                    ui.add_space(self.layout.gap);
-                    commands.extend(self.show_export(ui, side_width));
-                });
-                ui.add_space(self.layout.gap);
-                ui.vertical(|ui| {
-                    ui.set_width(main_width);
-                    commands.extend(self.show_rack(ui, main_width));
-                    ui.add_space(self.layout.gap);
-                    commands.extend(self.show_analysis(ui, main_width));
-                });
+                ui.spacing_mut().item_spacing.x = self.layout.gap;
+                ui.allocate_ui_with_layout(
+                    egui::vec2(side_width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = self.layout.gap;
+                        ui.set_width(side_width);
+                        commands.extend(self.show_input(ui, side_width));
+                        commands.extend(self.show_output(ui, side_width, 0.0));
+                        commands.extend(self.show_export(ui, side_width));
+                    },
+                );
+                ui.allocate_ui_with_layout(
+                    egui::vec2(main_width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.spacing_mut().item_spacing.y = self.layout.gap;
+                        ui.set_width(main_width);
+                        commands.extend(self.show_rack(ui, main_width));
+                        commands.extend(self.show_analysis(ui, main_width));
+                    },
+                );
             });
         } else {
+            ui.spacing_mut().item_spacing.y = self.layout.gap;
             let narrow_width = width.max(280.0);
             commands.extend(self.show_input(ui, narrow_width.min(440.0)));
-            ui.add_space(self.layout.gap);
             ScrollArea::horizontal()
                 .id_salt("narrow_rack")
                 .show(ui, |ui| {
                     commands.extend(self.show_rack(ui, narrow_width.max(640.0)));
                 });
-            ui.add_space(self.layout.gap);
-            commands.extend(self.show_output(ui, narrow_width.min(440.0)));
-            ui.add_space(self.layout.gap);
+            commands.extend(self.show_output(ui, narrow_width.min(440.0), 0.0));
             ScrollArea::horizontal()
                 .id_salt("narrow_analysis")
                 .show(ui, |ui| {
                     commands.extend(self.show_analysis(ui, narrow_width.max(640.0)));
                 });
-            ui.add_space(self.layout.gap);
             commands.extend(self.show_export(ui, narrow_width.min(440.0)));
         }
         commands
@@ -240,6 +262,7 @@ impl<'a> AppPage<'a> {
         };
         InputSourceCard::new("application_input", &view)
             .width(width)
+            .min_height(self.layout.rack_height + 80.0)
             .show(ui)
             .inner
             .into_iter()
@@ -279,7 +302,7 @@ impl<'a> AppPage<'a> {
         };
         IrRackCard::new("application_ir_rack", &view)
             .width(width)
-            .rack_height(self.layout.rack_height)
+            .rack_height(self.layout.rack_height + 2.0)
             .show(ui)
             .inner
             .into_iter()
@@ -343,7 +366,7 @@ impl<'a> AppPage<'a> {
             .collect()
     }
 
-    fn show_output(&self, ui: &mut Ui, width: f32) -> Vec<AppCommand> {
+    fn show_output(&self, ui: &mut Ui, width: f32, min_height: f32) -> Vec<AppCommand> {
         let output = &self.snapshot.project.output;
         let devices = labels(&self.snapshot.output_devices);
         let channels = labels(&self.snapshot.output_channels);
@@ -364,6 +387,7 @@ impl<'a> AppPage<'a> {
         };
         OutputCard::new("application_output", &view)
             .width(width)
+            .min_height(min_height)
             .show(ui)
             .inner
             .into_iter()

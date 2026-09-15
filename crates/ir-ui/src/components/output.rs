@@ -32,6 +32,7 @@ pub struct OutputCard<'a> {
     view: &'a OutputCardView<'a>,
     id: egui::Id,
     width: f32,
+    min_height: f32,
 }
 
 impl<'a> OutputCard<'a> {
@@ -40,6 +41,7 @@ impl<'a> OutputCard<'a> {
             view,
             id: egui::Id::new(id),
             width: 300.0,
+            min_height: 0.0,
         }
     }
 
@@ -48,11 +50,17 @@ impl<'a> OutputCard<'a> {
         self
     }
 
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.min_height = height.max(0.0);
+        self
+    }
+
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<OutputAction>> {
         ui.push_id(self.id, |ui| {
             CardFrame::new("Output")
                 .icon(Lucide::Volume2)
                 .width(self.width)
+                .min_height(self.min_height)
                 .show(ui, |ui| {
                     let v = self.view;
                     let mut actions = Vec::new();

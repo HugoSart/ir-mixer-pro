@@ -64,6 +64,7 @@ pub struct InputSourceCard<'a> {
     view: &'a InputSourceCardView<'a>,
     id: egui::Id,
     width: f32,
+    min_height: f32,
 }
 impl<'a> InputSourceCard<'a> {
     pub fn new(id: impl egui::AsId, view: &'a InputSourceCardView<'a>) -> Self {
@@ -71,10 +72,16 @@ impl<'a> InputSourceCard<'a> {
             view,
             id: egui::Id::new(id),
             width: 300.0,
+            min_height: 0.0,
         }
     }
     pub fn width(mut self, width: f32) -> Self {
         self.width = width.max(280.0);
+        self
+    }
+
+    pub fn min_height(mut self, height: f32) -> Self {
+        self.min_height = height.max(0.0);
         self
     }
     pub fn show(self, ui: &mut Ui) -> InnerResponse<Vec<InputSourceAction>> {
@@ -82,6 +89,7 @@ impl<'a> InputSourceCard<'a> {
             CardFrame::new("Input Source")
                 .icon(Lucide::Cable)
                 .width(self.width)
+                .min_height(self.min_height)
                 .show(ui, |ui| {
                     let mut actions = Vec::new();
                     let v = self.view;

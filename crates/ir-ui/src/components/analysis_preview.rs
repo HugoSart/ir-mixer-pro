@@ -54,7 +54,9 @@ impl<'a> AnalysisPreviewCard<'a> {
     }
 
     pub fn width(mut self, width: f32) -> Self {
-        self.width = width.max(640.0);
+        // Graph content adapts to the card; retaining a large card-level minimum
+        // would push the right rail outside medium-sized windows.
+        self.width = width.max(280.0);
         self
     }
 

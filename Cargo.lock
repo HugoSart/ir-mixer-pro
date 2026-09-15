@@ -727,6 +727,7 @@ dependencies = [
  "ahash",
  "egui",
  "enum-map",
+ "image",
  "itertools",
  "log",
  "profiling",
@@ -1189,6 +1190,7 @@ dependencies = [
  "egui-lucide",
  "egui_extras",
  "egui_kittest",
+ "image",
  "ir-app",
  "serde",
 ]

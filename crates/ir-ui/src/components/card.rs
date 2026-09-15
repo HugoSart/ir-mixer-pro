@@ -72,7 +72,12 @@ impl<'a> CardFrame<'a> {
             |ui| {
                 frame.show(ui, |ui| {
                     ui.set_width((self.width - 2.0 * padding - 2.0).max(0.0));
-                    ui.set_min_height((self.min_height - 2.0 * padding - 2.0).max(0.0));
+                    if self.min_height > 0.0 {
+                        // A configured card height is an outer layout contract. Keeping the
+                        // content UI fixed prevents content-dependent height differences from
+                        // misaligning adjacent cards in the application grid.
+                        ui.set_height((self.min_height - 2.0 * padding - 2.0).max(0.0));
+                    }
                     ui.horizontal(|ui| {
                         if let Some(icon) = self.icon {
                             ui.spacing_mut().item_spacing.x = ds.metrics.space_sm;

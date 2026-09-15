@@ -69,7 +69,9 @@ impl<'a> IrRackCard<'a> {
     }
 
     pub fn width(mut self, width: f32) -> Self {
-        self.width = width.max(640.0);
+        // The table owns horizontal scrolling, so the card itself must honor the
+        // width assigned by the responsive page grid.
+        self.width = width.max(280.0);
         self
     }
 
