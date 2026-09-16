@@ -209,6 +209,7 @@ impl<'a> DropdownSelector<'a> {
             .unwrap_or_else(|| full_text.to_owned());
         let response = ComboBox::from_id_salt(self.id)
             .width(self.width)
+            .truncate()
             .selected_text(selected_text)
             .show_index(ui, self.selected, self.options.len(), |index| {
                 self.options[index]
