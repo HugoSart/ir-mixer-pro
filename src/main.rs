@@ -1,12 +1,16 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use ir_app::{AudioBackend, FrontendMode, MockAudioBackend};
 use ir_native::NativeAudioBackend;
 use ir_ui::app::AppPage;
 use nice_plug_egui::{App, EguiWindow, EguiWindowSettings, Frame, baseview::dpi::LogicalSize};
 
+const PRODUCT_NAME: &str = "IR Mixer Pro";
+
 fn main() {
     EguiWindow::create(
         EguiWindowSettings::new()
-            .with_title("IR Mixer Pro")
+            .with_title(PRODUCT_NAME)
             .with_size(LogicalSize {
                 width: 1536.0,
                 height: 1024.0,
@@ -49,7 +53,11 @@ impl App for IrMixerApplication {
     ) -> Result<(), nice_plug_egui::baseview::HandlerError> {
         egui_extras::install_image_loaders(&egui_ctx);
         ir_ui::install(&egui_ctx);
-        ir_ui::native_window::configure_borderless(&egui_ctx, frame.baseview_window());
+        ir_ui::native_window::configure_borderless(
+            &egui_ctx,
+            frame.baseview_window(),
+            PRODUCT_NAME,
+        );
         Ok(())
     }
 

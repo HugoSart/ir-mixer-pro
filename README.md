@@ -64,6 +64,21 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+## Production build
+
+The supported MVP shipping target is the Windows x64 standalone application.
+The release build has the product title and taskbar/Alt-Tab icon configured and
+does not open a console window.
+
+```powershell
+.\tools\build-release.ps1
+```
+
+The script runs the release checks, builds the optimized executable, and creates
+a versioned ZIP plus a SHA-256 checksum under `dist\`. See the
+[build and release guide](docs/BUILD_AND_RELEASE.md) for prerequisites, manual
+commands, signing, smoke testing, and current plugin-format status.
+
 Visual regression baselines live in `crates/ir-ui/tests/snapshots`. Update them
 only after reviewing the rendered changes:
 

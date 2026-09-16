@@ -1,0 +1,13 @@
+[package]
+name = "ir-dsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ir-core = { path = "../ir-core" }
+rustfft.workspace = true
+thiserror.workspace = true
+
+[[bench]]
+name = "realtime"
+harness = false

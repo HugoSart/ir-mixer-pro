@@ -2,6 +2,7 @@
 name = "ir-mixer-pro"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 egui.workspace = true
@@ -13,9 +14,17 @@ ir-native = { path = "crates/ir-native" }
 ir-ui = { path = "crates/ir-ui" }
 nice-plug-egui.workspace = true
 
+[build-dependencies]
+image.workspace = true
+
 [workspace]
 members = ["crates/ir-app", "crates/ir-core", "crates/ir-dsp", "crates/ir-native", "crates/ir-ui", "tools/ui-gallery"]
 resolver = "3"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
 
 [workspace.dependencies]
 egui = { version = "=0.36.2", default-features = false, features = ["bytemuck"] }
