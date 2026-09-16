@@ -1,4 +1,4 @@
-﻿use egui::{Button, Color32, CornerRadius, Response, RichText, Stroke, Ui, Vec2, Widget};
+use egui::{Button, Color32, CornerRadius, Response, RichText, Stroke, Ui, Vec2, Widget};
 use egui_lucide::Lucide;
 
 use crate::{DesignSystem, TextRole};
@@ -17,6 +17,7 @@ pub struct ActionButton<'a> {
     icon: Option<Lucide>,
     selected: bool,
     enabled: bool,
+    loading: bool,
     tooltip: Option<&'a str>,
     min_width: f32,
     corner_radius: Option<CornerRadius>,
@@ -30,6 +31,7 @@ impl<'a> ActionButton<'a> {
             icon: None,
             selected: false,
             enabled: true,
+            loading: false,
             tooltip: None,
             min_width: 0.0,
             corner_radius: None,
@@ -53,6 +55,11 @@ impl<'a> ActionButton<'a> {
 
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    pub fn loading(mut self, loading: bool) -> Self {
+        self.loading = loading;
         self
     }
 
@@ -85,14 +92,25 @@ impl Widget for ActionButton<'_> {
         let label = RichText::new(self.label)
             .font(TextRole::ControlLabel.font_id())
             .color(foreground);
-        let button = if let Some(icon) = self.icon {
-            Button::image_and_text(
-                icon.color(foreground)
-                    .size(ds.metrics.icon_default)
-                    .stroke_width(1.8)
-                    .image(),
-                label,
-            )
+        let icon = if self.loading {
+            Some(Lucide::LoaderCircle)
+        } else {
+            self.icon
+        };
+        if self.loading {
+            ui.ctx().request_repaint();
+        }
+        let button = if let Some(icon) = icon {
+            let mut image = icon
+                .color(foreground)
+                .size(ds.metrics.icon_default)
+                .stroke_width(1.8)
+                .image();
+            if self.loading {
+                let angle = ui.input(|input| input.time as f32 * 5.0);
+                image = image.rotate(angle, Vec2::splat(0.5));
+            }
+            Button::image_and_text(image, label)
         } else {
             Button::new(label)
         }
@@ -119,7 +137,7 @@ impl Widget for ActionButton<'_> {
                     visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
                     visuals.widgets.inactive.bg_stroke = Stroke::NONE;
                 }
-                ui.add_enabled(self.enabled, button)
+                ui.add_enabled(self.enabled && !self.loading, button)
             })
             .inner;
 
@@ -137,6 +155,7 @@ pub struct IconButton<'a> {
     kind: ButtonKind,
     selected: bool,
     enabled: bool,
+    loading: bool,
 }
 
 impl<'a> IconButton<'a> {
@@ -147,6 +166,7 @@ impl<'a> IconButton<'a> {
             kind: ButtonKind::Secondary,
             selected: false,
             enabled: true,
+            loading: false,
         }
     }
 
@@ -164,6 +184,11 @@ impl<'a> IconButton<'a> {
         self.enabled = enabled;
         self
     }
+
+    pub fn loading(mut self, loading: bool) -> Self {
+        self.loading = loading;
+        self
+    }
 }
 
 impl Widget for IconButton<'_> {
@@ -176,13 +201,29 @@ impl Widget for IconButton<'_> {
         } else {
             c.text_primary
         };
-        let image = self
-            .icon
+        let icon = if self.loading {
+            Lucide::LoaderCircle
+        } else {
+            self.icon
+        };
+        if self.loading {
+            ui.ctx().request_repaint();
+        }
+        let tooltip = if self.loading {
+            format!("Loading: {}", self.tooltip)
+        } else {
+            self.tooltip.to_owned()
+        };
+        let mut image = icon
             .color(foreground)
             .size(ds.metrics.icon_default)
             .stroke_width(1.8)
             .image()
-            .alt_text(self.tooltip);
+            .alt_text(tooltip.clone());
+        if self.loading {
+            let angle = ui.input(|input| input.time as f32 * 5.0);
+            image = image.rotate(angle, Vec2::splat(0.5));
+        }
         let button = Button::image(image)
             .min_size(Vec2::splat(ds.metrics.control_height))
             .corner_radius(ds.metrics.radius_control)
@@ -204,10 +245,10 @@ impl Widget for IconButton<'_> {
                 visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
                 visuals.widgets.inactive.bg_stroke = Stroke::NONE;
             }
-            ui.add_enabled(self.enabled, button)
+            ui.add_enabled(self.enabled && !self.loading, button)
         })
         .inner
-        .on_hover_text(self.tooltip)
+        .on_hover_text(tooltip)
     }
 }
 

@@ -72,12 +72,17 @@ fn complete_page_renders_loading_and_error_states() {
     snapshot.project.source.content_state = ir_app::ContentState::Loading {
         message: "Preparing preview waveform…".into(),
     };
+    snapshot.file_load_activity.preview_loading = true;
+    snapshot.file_load_activity.adding_ir_count = 1;
+    snapshot.file_load_activity.replacing_ir_ids = vec![snapshot.project.ir_slots[0].id];
     snapshot.project.ir_slots[1].load_state = ir_app::ContentState::Error {
         message: "Unsupported WAV encoding".into(),
     };
     snapshot.project.analysis.content_state = ir_app::ContentState::Error {
         message: "Analysis data is unavailable".into(),
     };
+    snapshot.status = "Audio device configuration failed".into();
+    snapshot.status_is_error = true;
     snapshot.project.export.state = ir_app::ExportState::Exporting { progress: 0.45 };
     let mut harness = page_harness_with_snapshot(
         egui::vec2(1536.0, 1024.0),

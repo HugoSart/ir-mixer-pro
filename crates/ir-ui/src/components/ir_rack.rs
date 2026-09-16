@@ -21,6 +21,8 @@ pub struct IrRackSlotView<'a> {
     pub normalize: bool,
     pub soloed: bool,
     pub muted: bool,
+    pub replace_enabled: bool,
+    pub replace_loading: bool,
     pub load_status: ContentStatusView<'a>,
 }
 
@@ -28,6 +30,8 @@ pub struct IrRackSlotView<'a> {
 pub struct IrRackCardView<'a> {
     pub slots: &'a [IrRackSlotView<'a>],
     pub selected: Option<u64>,
+    pub add_enabled: bool,
+    pub add_loading: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,7 +127,12 @@ impl<'a> IrRackCard<'a> {
                             actions.borrow_mut().push(IrRackAction::Remove { id });
                         }
                         if ui
-                            .add(ActionButton::new("Add IR").icon(Lucide::Plus))
+                            .add(
+                                ActionButton::new("Add IR")
+                                    .icon(Lucide::Plus)
+                                    .enabled(self.view.add_enabled)
+                                    .loading(self.view.add_loading),
+                            )
                             .clicked()
                         {
                             actions.borrow_mut().push(IrRackAction::AddIr);
@@ -311,7 +320,7 @@ fn row(
                 }
                 let (metadata, metadata_color) = match s.load_status {
                     ContentStatusView::Ready => (s.metadata, ds.colors.text_secondary),
-                    ContentStatusView::Loading(message) => (message, ds.colors.accent_focus),
+                    ContentStatusView::Loading(_) => (s.metadata, ds.colors.text_secondary),
                     ContentStatusView::Error(message) => (message, ds.colors.status_danger),
                 };
                 ui.add(
@@ -415,6 +424,14 @@ fn row(
         }
     });
     cell(ui, content_rect, widths, 11, |ui| {
+        if s.replace_loading {
+            ui.add(
+                IconButton::new(Lucide::LoaderCircle, "Replacing IR file")
+                    .enabled(false)
+                    .loading(true),
+            );
+            return;
+        }
         ui.menu_button("…", |ui| {
             if ui
                 .add_enabled(position.index > 0, ActionButton::new("Move up"))
@@ -433,7 +450,10 @@ fn row(
                 a.push(IrRackAction::MoveDown { id });
                 ui.close();
             }
-            if ui.add(ActionButton::new("Replace IR file")).clicked() {
+            if ui
+                .add(ActionButton::new("Replace IR file").enabled(s.replace_enabled))
+                .clicked()
+            {
                 a.push(IrRackAction::Browse { id });
                 ui.close();
             }

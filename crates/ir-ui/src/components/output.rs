@@ -69,6 +69,7 @@ impl<'a> OutputCard<'a> {
                         ui.add(
                             DropdownSelector::new("output_device", v.devices, &mut device)
                                 .width(ui.available_width())
+                                .selected_text_max_chars(32)
                                 .label("Output Device", SelectorLabelPosition::Top),
                         );
                         if device != v.device {

@@ -80,6 +80,8 @@ impl CardsDemo {
             buffer_size: self.selections[3],
             monitoring: self.monitoring,
             standalone_routing: true,
+            browse_enabled: true,
+            browse_loading: false,
             content_status: ContentStatusView::Ready,
         };
         let actions = InputSourceCard::new(id, &view).width(320.0).show(ui).inner;
@@ -181,12 +183,16 @@ impl IrRackDemo {
                 normalize: slot.normalize,
                 soloed: slot.soloed,
                 muted: slot.muted,
+                replace_enabled: true,
+                replace_loading: false,
                 load_status: ContentStatusView::Ready,
             })
             .collect::<Vec<_>>();
         let view = IrRackCardView {
             slots: &views,
             selected: self.selected,
+            add_enabled: true,
+            add_loading: false,
         };
         for action in IrRackCard::new("ir_rack_card", &view)
             .width(width)

@@ -39,6 +39,8 @@ pub struct InputSourceCardView<'a> {
     pub buffer_size: usize,
     pub monitoring: bool,
     pub standalone_routing: bool,
+    pub browse_enabled: bool,
+    pub browse_loading: bool,
     pub content_status: ContentStatusView<'a>,
 }
 
@@ -107,7 +109,9 @@ impl<'a> InputSourceCard<'a> {
                         actions.push(InputSourceAction::SetMode(new_mode));
                     }
                     ui.add_space(4.0);
-                    super::status::status_banner(ui, v.content_status);
+                    if matches!(v.content_status, ContentStatusView::Error(_)) {
+                        super::status::status_banner(ui, v.content_status);
+                    }
                     match v.mode {
                         SourceMode::Preview => self.preview(ui, &mut actions),
                         SourceMode::Live => self.live(ui, &mut actions),
@@ -150,7 +154,11 @@ impl<'a> InputSourceCard<'a> {
                     .on_hover_text(v.filename.unwrap_or("No file loaded"));
             });
             if ui
-                .add(IconButton::new(Lucide::FolderOpen, "Browse preview file"))
+                .add(
+                    IconButton::new(Lucide::FolderOpen, "Browse preview file")
+                        .enabled(v.browse_enabled)
+                        .loading(v.browse_loading),
+                )
                 .clicked()
             {
                 actions.push(InputSourceAction::Browse);

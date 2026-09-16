@@ -86,6 +86,9 @@ cue.
 | `status.warning` | `#E6B94E` | Recoverable warnings |
 | `status.danger` | `#F05B6A` | Errors, clipping, and destructive emphasis |
 
+The status-bar engine dot uses `status.success` for normal operation and
+`status.danger` whenever the current backend status represents an error.
+
 Disabled widgets use `text.muted` and 45% content opacity. Do not reduce critical
 error or clipping indicators below 70% opacity.
 
@@ -133,6 +136,9 @@ floating menus: black at 28% opacity, blur 16, vertical offset 6.
 - Selected: use the accent fill or `accent.soft` plus an accent border.
 - Keyboard focus: draw a two-point `accent.focus` ring outside the widget bounds.
 - Disabled: remove hover/press behavior and use muted text at 45% content opacity.
+- Loading button: replace its leading icon with an accent-colored animated
+  spinner, preserve the button's external dimensions and label, disable repeat
+  activation, and retain an accessible label for the operation.
 - Destructive: remain neutral until confirmation unless the action is immediately
   destructive; include a text label or recognizable icon.
 - Fine adjustment: Shift + drag uses one tenth of normal sensitivity.
@@ -153,6 +159,9 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
   retain that label for tooltips and accessibility.
 - Dropdown selectors may be unlabeled, labeled on the left, or labeled above.
   These arrangements share identical field and popup styling.
+- Output-device dropdowns keep the card-assigned field width and truncate the
+  selected device name to 32 characters with an ellipsis; hovering reveals the
+  full name. Popup options retain their complete labels.
 - List selectors are single-select, always-visible collections of flat, text-only
   rows inside one bordered container. Each row contains a key and value. Keys are
   left-aligned; every value begins after the widest rendered key plus a 12-point

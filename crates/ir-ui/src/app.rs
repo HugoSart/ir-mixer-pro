@@ -301,6 +301,9 @@ impl<'a> AppPage<'a> {
             buffer_size: selected_index(&self.snapshot.buffer_sizes, &source.buffer_size),
             monitoring: source.monitoring,
             standalone_routing: self.frontend_mode == FrontendMode::Standalone,
+            browse_enabled: !self.snapshot.file_load_activity.dialog_open
+                && !self.snapshot.file_load_activity.preview_loading,
+            browse_loading: self.snapshot.file_load_activity.preview_loading,
             content_status: content_status(&source.content_state),
         };
         InputSourceCard::new("application_input", &view)
@@ -336,12 +339,18 @@ impl<'a> AppPage<'a> {
                 normalize: slot.normalize,
                 soloed: slot.soloed,
                 muted: slot.muted,
+                replace_enabled: !self.snapshot.file_load_activity.dialog_open
+                    && !self.snapshot.file_load_activity.replacing_ir(slot.id),
+                replace_loading: self.snapshot.file_load_activity.replacing_ir(slot.id),
                 load_status: content_status(&slot.load_state),
             })
             .collect::<Vec<_>>();
         let view = IrRackCardView {
             slots: &slots,
             selected: self.snapshot.project.selected_ir.map(|id| id.0),
+            add_enabled: !self.snapshot.file_load_activity.dialog_open
+                && !self.snapshot.file_load_activity.adding_irs(),
+            add_loading: self.snapshot.file_load_activity.adding_irs(),
         };
         IrRackCard::new("application_ir_rack", &view)
             .width(width)
@@ -486,6 +495,7 @@ impl<'a> AppPage<'a> {
             .count();
         let view = StatusBarView {
             message: &self.snapshot.status,
+            is_error: self.snapshot.status_is_error,
             sample_rate: choice_label(&self.snapshot.sample_rates, &source.sample_rate),
             buffer_size: choice_label(&self.snapshot.buffer_sizes, &source.buffer_size),
             active_irs,

@@ -3,6 +3,7 @@ use egui::{RichText, Ui};
 
 pub struct StatusBarView<'a> {
     pub message: &'a str,
+    pub is_error: bool,
     pub sample_rate: &'a str,
     pub buffer_size: &'a str,
     pub active_irs: usize,
@@ -25,8 +26,15 @@ impl<'a> StatusBar<'a> {
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                ui.painter()
-                    .circle_filled(dot.center(), 5.0, ds.colors.status_success);
+                ui.painter().circle_filled(
+                    dot.center(),
+                    5.0,
+                    if self.view.is_error {
+                        ds.colors.status_danger
+                    } else {
+                        ds.colors.status_success
+                    },
+                );
                 ui.label(
                     RichText::new(self.view.message)
                         .font(TextRole::Metadata.font_id())

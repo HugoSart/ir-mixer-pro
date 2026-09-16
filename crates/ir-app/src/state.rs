@@ -274,6 +274,28 @@ pub struct AnalysisTrace {
     pub emphasized: bool,
 }
 
+/// Transient file-picker and background-load activity exposed to the UI.
+///
+/// This deliberately lives on `AppSnapshot` rather than in `ProjectState` so
+/// presets and plugin state never persist in-progress operations.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FileLoadActivity {
+    pub dialog_open: bool,
+    pub preview_loading: bool,
+    pub adding_ir_count: usize,
+    pub replacing_ir_ids: Vec<IrId>,
+}
+
+impl FileLoadActivity {
+    pub fn adding_irs(&self) -> bool {
+        self.adding_ir_count > 0
+    }
+
+    pub fn replacing_ir(&self, id: IrId) -> bool {
+        self.replacing_ir_ids.contains(&id)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppSnapshot {
     pub project: ProjectState,
@@ -290,6 +312,7 @@ pub struct AppSnapshot {
     pub bit_depths: Vec<Choice>,
     pub channel_modes: Vec<Choice>,
     pub export_lengths: Vec<Choice>,
+    pub file_load_activity: FileLoadActivity,
     pub frequency_traces: Vec<AnalysisTrace>,
     pub phase_traces: Vec<AnalysisTrace>,
     pub spectrum_traces: Vec<AnalysisTrace>,
@@ -299,6 +322,7 @@ pub struct AppSnapshot {
     pub cpu_percent: f32,
     pub latency_ms: f32,
     pub status: String,
+    pub status_is_error: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

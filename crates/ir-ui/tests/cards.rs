@@ -5,8 +5,13 @@ struct State {
     mode: SourceMode,
     actions: Vec<InputSourceAction>,
     initialized: bool,
+    loading: bool,
 }
 fn harness(mode: SourceMode, scale: f32) -> Harness<'static, State> {
+    harness_with_loading(mode, scale, false)
+}
+
+fn harness_with_loading(mode: SourceMode, scale: f32, loading: bool) -> Harness<'static, State> {
     Harness::builder()
         .with_size(egui::vec2(360.0, 650.0))
         .with_pixels_per_point(scale)
@@ -41,6 +46,8 @@ fn harness(mode: SourceMode, scale: f32) -> Harness<'static, State> {
                     buffer_size: 0,
                     monitoring: false,
                     standalone_routing: true,
+                    browse_enabled: !state.loading,
+                    browse_loading: state.loading,
                     content_status: ContentStatusView::Ready,
                 };
                 state.actions.extend(
@@ -54,6 +61,7 @@ fn harness(mode: SourceMode, scale: f32) -> Harness<'static, State> {
                 mode,
                 actions: vec![],
                 initialized: false,
+                loading,
             },
         )
 }
@@ -86,6 +94,14 @@ fn card_emits_intents_without_mutating_view() {
         live.state().actions,
         vec![InputSourceAction::SetMonitoring(true)]
     );
+}
+
+#[test]
+fn loading_browse_button_is_disabled_and_emits_no_intent() {
+    let mut h = harness_with_loading(SourceMode::Preview, 1.0, true);
+    h.get_by_label("Loading: Browse preview file").click();
+    h.step();
+    assert!(h.state().actions.is_empty());
 }
 
 #[test]
@@ -250,6 +266,8 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         normalize: true,
                         soloed: false,
                         muted: false,
+                        replace_enabled: true,
+                        replace_loading: false,
                         load_status: ContentStatusView::Ready,
                     },
                     IrRackSlotView {
@@ -268,6 +286,8 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         normalize: true,
                         soloed: false,
                         muted: false,
+                        replace_enabled: true,
+                        replace_loading: false,
                         load_status: ContentStatusView::Ready,
                     },
                 ];
@@ -277,6 +297,8 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         &IrRackCardView {
                             slots: &slots,
                             selected: Some(1),
+                            add_enabled: true,
+                            add_loading: false,
                         },
                     )
                     .width(900.0)

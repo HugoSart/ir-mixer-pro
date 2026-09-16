@@ -134,6 +134,15 @@ Show:
 - Loop
 - Time position
 
+The Browse control replaces its folder icon with an animated spinner and is
+disabled from file-picker launch through decode completion. Existing filename,
+metadata, and waveform content remain visible during replacement; load failures
+continue to use inline error feedback.
+While preview playback is active, the transport control shows Pause and pauses
+the current position when activated. A just-issued Play command remains in the
+playing state until the audio thread acknowledges it, avoiding a transient reset
+back to the Play icon.
+
 ### Live Input mode
 
 Show:
@@ -201,6 +210,12 @@ Support later:
 - Folder drop
 
 When new IRs are added, preserve existing scroll position sensibly.
+
+While an Add IR batch is being prepared, the Add IR button shows an in-button
+spinner and cannot be triggered again. A per-slot replacement uses the same
+treatment in that row's action control. Do not replace file metadata with
+temporary loading text; retain existing metadata or leave it blank for a new
+slot until decoding completes.
 
 ## 8. Gain Control
 
@@ -333,6 +348,11 @@ Suggested tabs:
 - Combined impulse waveform
 - Selected individual IR overlay or switch
 - Zoom later
+
+Frequency, phase, and combined impulse views update from the latest completed
+background analysis whenever a mix-affecting IR control changes. Keep the
+current graph visible while a newer result is calculated; never replace the
+chart with a transient loading banner.
 
 ## 16. Meters
 

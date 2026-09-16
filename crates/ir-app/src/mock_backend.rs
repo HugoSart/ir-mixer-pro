@@ -1,7 +1,7 @@
 use crate::{
     AnalysisState, AnalysisTab, AnalysisTrace, AppCommand, AppSnapshot, AudioBackend, BackendEvent,
-    Choice, ContentState, ExportSettings, ExportState, IrId, IrSlotState, OptionId, OutputState,
-    ProjectState, SourceMode, SourceState, TransportState,
+    Choice, ContentState, ExportSettings, ExportState, FileLoadActivity, IrId, IrSlotState,
+    OptionId, OutputState, ProjectState, SourceMode, SourceState, TransportState,
 };
 
 pub struct MockAudioBackend {
@@ -85,6 +85,7 @@ impl AudioBackend for MockAudioBackend {
 impl MockAudioBackend {
     fn apply(&mut self, command: AppCommand) {
         use AppCommand::*;
+        let changes_analysis = command_changes_analysis(&command);
         let changes_project = command_changes_project(&command);
         match command {
             SelectPreset(id) => {
@@ -223,6 +224,9 @@ impl MockAudioBackend {
         if changes_project {
             self.snapshot.project.dirty = true;
         }
+        if changes_analysis {
+            refresh_mock_analysis(&mut self.snapshot);
+        }
     }
 
     fn slot_mut(&mut self, id: IrId) -> Option<&mut IrSlotState> {
@@ -274,6 +278,125 @@ fn command_changes_project(command: &AppCommand) -> bool {
             | AppCommand::RestartPreview
             | AppCommand::Export
     )
+}
+
+fn command_changes_analysis(command: &AppCommand) -> bool {
+    use AppCommand::*;
+    matches!(
+        command,
+        SelectPreset(_)
+            | AddIr
+            | ClearAllIrs
+            | NormalizeAllIrs
+            | ReplaceIr(_)
+            | RemoveIr(_)
+            | MoveIrUp(_)
+            | MoveIrDown(_)
+            | SetIrEnabled(_, _)
+            | SetIrGainDb(_, _)
+            | SetIrDelaySamples(_, _)
+            | SetIrPan(_, _)
+            | SetIrPolarity(_, _)
+            | SetIrNormalize(_, _)
+            | SetIrSolo(_, _)
+            | SetIrMute(_, _)
+            | SetSampleRate(_)
+            | SetOutputGainDb(_)
+    )
+}
+
+fn refresh_mock_analysis(snapshot: &mut AppSnapshot) {
+    let slots = &snapshot.project.ir_slots;
+    let any_solo = slots.iter().any(|slot| slot.soloed);
+    let output_gain = snapshot.project.output.gain_db;
+    let mut combined_linear = vec![0.0_f32; 180];
+    let mut combined_phase = vec![0.0_f32; 180];
+    let mut active_count = 0.0_f32;
+    let mut frequency = Vec::with_capacity(slots.len() + 1);
+    let mut phase = Vec::with_capacity(slots.len() + 1);
+
+    for (index, slot) in slots.iter().enumerate() {
+        let audible = slot.enabled && !slot.muted && (!any_solo || slot.soloed);
+        let level_db = if audible { slot.gain_db } else { -80.0 };
+        let polarity = if slot.polarity_inverted { 180.0 } else { 0.0 };
+        let frequency_values = (0..180)
+            .map(|sample| {
+                let x = sample as f32 / 179.0;
+                level_db + (x * 7.0 + index as f32 * 0.8).sin() * 3.0 - x.powi(5) * 18.0
+            })
+            .collect::<Vec<_>>();
+        let phase_values = (0..180)
+            .map(|sample| {
+                let x = sample as f32 / 179.0;
+                ((x * 7.0 + index as f32 * 0.8).sin() * 36.0 - x * slot.delay_samples as f32 * 0.45
+                    + polarity
+                    + 180.0)
+                    .rem_euclid(360.0)
+                    - 180.0
+            })
+            .collect::<Vec<_>>();
+        if audible {
+            active_count += 1.0;
+            for sample in 0..180 {
+                combined_linear[sample] += 10.0_f32.powf(frequency_values[sample] / 20.0);
+                combined_phase[sample] += phase_values[sample];
+            }
+        }
+        frequency.push(AnalysisTrace {
+            label: slot.filename.clone(),
+            values: frequency_values,
+            color_index: Some(slot.color_index),
+            emphasized: false,
+        });
+        phase.push(AnalysisTrace {
+            label: slot.filename.clone(),
+            values: phase_values,
+            color_index: Some(slot.color_index),
+            emphasized: false,
+        });
+    }
+
+    let combined_frequency = combined_linear
+        .into_iter()
+        .map(|value| 20.0 * value.max(0.0001).log10() + output_gain)
+        .collect();
+    if active_count > 0.0 {
+        for value in &mut combined_phase {
+            *value /= active_count;
+        }
+    }
+    frequency.push(AnalysisTrace {
+        label: "Sum (Mixed)".into(),
+        values: combined_frequency,
+        color_index: None,
+        emphasized: true,
+    });
+    phase.push(AnalysisTrace {
+        label: "Sum (Mixed)".into(),
+        values: combined_phase,
+        color_index: None,
+        emphasized: true,
+    });
+
+    let output_scale = 10.0_f32.powf(output_gain / 20.0);
+    snapshot.combined_waveform = (0..320)
+        .map(|sample| {
+            slots
+                .iter()
+                .filter(|slot| slot.enabled && !slot.muted && (!any_solo || slot.soloed))
+                .map(|slot| {
+                    let delay = (slot.delay_samples.max(0) as usize).min(sample);
+                    let source_index = sample - delay;
+                    let source = slot.waveform.get(source_index % slot.waveform.len().max(1));
+                    let polarity = if slot.polarity_inverted { -1.0 } else { 1.0 };
+                    source.copied().unwrap_or(0.0) * 10.0_f32.powf(slot.gain_db / 20.0) * polarity
+                })
+                .sum::<f32>()
+                * output_scale
+        })
+        .collect();
+    snapshot.frequency_traces = frequency;
+    snapshot.phase_traces = phase;
 }
 
 fn demo_snapshot() -> AppSnapshot {
@@ -377,6 +500,7 @@ fn demo_snapshot() -> AppSnapshot {
             ("2048", "2048 samples"),
             ("4096", "4096 samples"),
         ]),
+        file_load_activity: FileLoadActivity::default(),
         frequency_traces: traces(false),
         phase_traces: traces(true),
         spectrum_traces: traces(false),
@@ -386,6 +510,7 @@ fn demo_snapshot() -> AppSnapshot {
         cpu_percent: 2.1,
         latency_ms: 5.3,
         status: "Audio Engine Running".into(),
+        status_is_error: false,
     }
 }
 
@@ -476,11 +601,13 @@ mod tests {
     fn mock_commands_update_state_and_preserve_color_identity() {
         let mut backend = MockAudioBackend::default();
         let original = backend.snapshot.project.ir_slots[1].color_index;
+        let original_analysis = backend.snapshot.combined_waveform.clone();
         backend.dispatch(AppCommand::MoveIrUp(IrId(2)));
         assert_eq!(backend.snapshot.project.ir_slots[0].id, IrId(2));
         assert_eq!(backend.snapshot.project.ir_slots[0].color_index, original);
         backend.dispatch(AppCommand::SetIrMute(IrId(2), true));
         assert!(backend.snapshot.project.ir_slots[0].muted);
+        assert_ne!(backend.snapshot.combined_waveform, original_analysis);
     }
 
     #[test]

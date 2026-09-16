@@ -353,6 +353,16 @@ selected output channels
 
 Device ownership belongs to the standalone host layer.
 
+Standalone channel selectors are derived from each selected device's current
+CPAL topology rather than a fixed channel count. Changing devices preserves a
+channel only when it remains valid, otherwise it selects the first available
+channel. Stream creation defensively clamps stale selections, and a one-channel
+output receives a mono downmix instead of requiring a stereo pair.
+The initial standalone selection follows the operating system's default input
+and output devices. The output adapter bridges arbitrary driver callback sizes
+to fixed DSP blocks using preallocated buffers, since virtual devices may not
+honor the requested callback quantum exactly.
+
 ## 10. Plugin Pipeline
 
 ```text
@@ -384,6 +394,13 @@ Do not run FFT visualization work directly in the audio callback.
 This can be computed when an IR or IR parameter affecting the response changes.
 
 No need to recompute every UI frame.
+
+The native backend keeps at most one analysis job in flight and one pending
+latest-state request. Continuous gain, delay, pan, polarity, normalization,
+enable, mute, solo, and output-gain edits replace the pending request instead of
+building an unbounded worker queue. Completed snapshots replace frequency,
+phase, and combined-waveform data atomically while the previous graphs remain
+visible. Analysis rendering remains entirely off the audio thread.
 
 ### Waveform
 

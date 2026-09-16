@@ -84,7 +84,7 @@ impl<'a> AnalysisPreviewCard<'a> {
                     ui,
                     |_| {},
                     |ui| {
-                        if v.content_status != ContentStatusView::Ready {
+                        if matches!(v.content_status, ContentStatusView::Error(_)) {
                             super::status::status_banner(ui, v.content_status);
                             return;
                         }

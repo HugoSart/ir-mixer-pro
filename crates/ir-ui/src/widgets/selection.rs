@@ -1,4 +1,4 @@
-﻿use egui::{
+use egui::{
     Align2, AsId, ComboBox, Id, Response, RichText, Sense, Stroke, Ui, Vec2, Widget, WidgetInfo,
     WidgetType, pos2,
 };
@@ -156,6 +156,7 @@ pub struct DropdownSelector<'a> {
     label: Option<&'a str>,
     label_position: SelectorLabelPosition,
     width: f32,
+    selected_text_max_chars: Option<usize>,
 }
 
 impl<'a> DropdownSelector<'a> {
@@ -167,6 +168,7 @@ impl<'a> DropdownSelector<'a> {
             label: None,
             label_position: SelectorLabelPosition::None,
             width: 180.0,
+            selected_text_max_chars: None,
         }
     }
 
@@ -178,6 +180,11 @@ impl<'a> DropdownSelector<'a> {
 
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
+        self
+    }
+
+    pub fn selected_text_max_chars(mut self, max_chars: usize) -> Self {
+        self.selected_text_max_chars = Some(max_chars.max(1));
         self
     }
 
@@ -195,17 +202,41 @@ impl<'a> DropdownSelector<'a> {
         }
 
         *self.selected = (*self.selected).min(self.options.len() - 1);
-        ComboBox::from_id_salt(self.id)
+        let full_text = self.options[*self.selected];
+        let selected_text = self
+            .selected_text_max_chars
+            .map(|max_chars| truncate_with_ellipsis(full_text, max_chars))
+            .unwrap_or_else(|| full_text.to_owned());
+        let response = ComboBox::from_id_salt(self.id)
             .width(self.width)
-            .selected_text(self.options[*self.selected])
+            .selected_text(selected_text)
             .show_index(ui, self.selected, self.options.len(), |index| {
                 self.options[index]
-            })
+            });
+        if self
+            .selected_text_max_chars
+            .is_some_and(|max_chars| full_text.chars().count() > max_chars)
+        {
+            response.on_hover_text(full_text)
+        } else {
+            response
+        }
     }
 
     fn styled_label(ui: &mut Ui, label: &str) -> Response {
         ui.label(RichText::new(label).font(TextRole::ControlLabel.font_id()))
     }
+}
+
+fn truncate_with_ellipsis(value: &str, max_chars: usize) -> String {
+    let count = value.chars().count();
+    if count <= max_chars {
+        return value.to_owned();
+    }
+    let visible = max_chars.saturating_sub(1);
+    let mut truncated = value.chars().take(visible).collect::<String>();
+    truncated.push('…');
+    truncated
 }
 
 impl Widget for DropdownSelector<'_> {
@@ -403,5 +434,21 @@ impl Widget for ListSelector<'_> {
             response.mark_changed();
         }
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_with_ellipsis;
+
+    #[test]
+    fn selected_text_truncation_preserves_the_character_limit() {
+        assert_eq!(
+            truncate_with_ellipsis("Voicemeeter Input", 32),
+            "Voicemeeter Input"
+        );
+        let truncated = truncate_with_ellipsis("A very long output device display name", 12);
+        assert_eq!(truncated, "A very long…");
+        assert_eq!(truncated.chars().count(), 12);
     }
 }
