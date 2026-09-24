@@ -262,6 +262,10 @@ impl NativeAudioBackend {
             ReplaceIr(id) => self.choose_irs(Some(id)),
             ClearAllIrs => self.clear_irs(),
             RemoveIr(id) => self.remove_ir(id),
+            SetBalanceMode(value) => {
+                self.snapshot.project.set_balance_mode(value);
+                self.sync_balance_slot_parameters();
+            }
             MoveIrUp(id) => self.move_ir(id, -1),
             MoveIrDown(id) => self.move_ir(id, 1),
             SelectIr(id) => self.snapshot.project.selected_ir = Some(id),
@@ -285,6 +289,11 @@ impl NativeAudioBackend {
                 }
             }
             SetIrGainDb(id, value) => self.update_slot(id, |slot| slot.gain_db = value),
+            SetIrBalancePercent(id, value) => {
+                if self.snapshot.project.set_balance_percent(id, value) {
+                    self.sync_balance_slot_parameters();
+                }
+            }
             SetIrDelaySamples(id, value) => {
                 self.update_slot(id, |slot| slot.delay_samples = value.clamp(0, 4096))
             }
@@ -614,6 +623,10 @@ impl NativeAudioBackend {
         if replacement.is_none() {
             self.snapshot.file_load_activity.adding_ir_count += 1;
             self.snapshot.project.ir_slots.push(new_slot(id, &path));
+            if self.snapshot.project.balance_mode {
+                self.snapshot.project.equalize_balance();
+                self.sync_balance_slot_parameters();
+            }
             self.snapshot.project.selected_ir = Some(id);
         } else if let Some(slot) = self
             .snapshot
@@ -686,6 +699,10 @@ impl NativeAudioBackend {
         self.send(RuntimeCommand::RemoveSlot(id.0));
         self.audio.remove(&id);
         self.snapshot.project.ir_slots.retain(|slot| slot.id != id);
+        if self.snapshot.project.balance_mode {
+            self.snapshot.project.equalize_balance();
+            self.sync_balance_slot_parameters();
+        }
         if self.snapshot.project.selected_ir == Some(id) {
             self.snapshot.project.selected_ir =
                 self.snapshot.project.ir_slots.first().map(|slot| slot.id);
@@ -700,6 +717,20 @@ impl NativeAudioBackend {
             if target != index {
                 slots.swap(index, target);
             }
+        }
+    }
+
+    fn sync_balance_slot_parameters(&mut self) {
+        let slots = self
+            .snapshot
+            .project
+            .ir_slots
+            .iter()
+            .filter(|slot| self.audio.contains_key(&slot.id))
+            .map(|slot| (slot.id, params(slot)))
+            .collect::<Vec<_>>();
+        for (id, slot_params) in slots {
+            self.send(RuntimeCommand::SetSlotParameters(id.0, slot_params));
         }
     }
 
@@ -1174,11 +1205,13 @@ fn command_changes_analysis(command: &AppCommand) -> bool {
         command,
         ClearAllIrs
             | NormalizeAllIrs
+            | SetBalanceMode(_)
             | RemoveIr(_)
             | MoveIrUp(_)
             | MoveIrDown(_)
             | SetIrEnabled(_, _)
             | SetIrGainDb(_, _)
+            | SetIrBalancePercent(_, _)
             | SetIrDelaySamples(_, _)
             | SetIrPan(_, _)
             | SetIrPolarity(_, _)
@@ -1284,6 +1317,7 @@ fn new_slot(id: IrId, path: &Path) -> IrSlotState {
         color_index: ((id.0 - 1) % 8) as u8,
         enabled: true,
         gain_db: 0.0,
+        balance_percent: 0.0,
         delay_samples: 0,
         sample_rate_hz: 48_000.0,
         pan: 0.0,

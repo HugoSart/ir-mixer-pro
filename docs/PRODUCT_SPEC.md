@@ -113,6 +113,15 @@ Optional future metadata:
 - Suggested initial range: approximately -60 dB to +12 dB.
 - Fader / knob scaling should emphasize useful mixing ranges around 0 to -24 dB.
 
+### Balance Mode
+
+The IR rack provides an optional **Balance Mode** for unity-sum amplitude blends.
+When enabled, each Level control displays its percentage contribution instead of
+dB and all loaded IR percentages total exactly 100%. A single IR is fixed at
+100%; adding an IR redistributes all slots equally. Editing one slot
+proportionally redistributes the remaining slots. The stored percentage is
+converted to the equivalent linear gain for monitoring and export.
+
 ### Delay
 
 - Adjustable in samples.
@@ -240,6 +249,7 @@ A preset should store:
 - IR file references
 - Slot order
 - Gain
+- Balance Mode and per-IR balance percentages
 - Delay
 - Polarity
 - Mute / solo state

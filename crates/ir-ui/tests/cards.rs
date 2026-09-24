@@ -259,6 +259,7 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         color: ir_ui::IR_COLORS[0],
                         enabled: true,
                         gain_db: -3.0,
+                        balance_percent: 50.0,
                         delay_samples: 0,
                         sample_rate: 48_000.0,
                         pan: 0.0,
@@ -279,6 +280,7 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                         color: ir_ui::IR_COLORS[1],
                         enabled: true,
                         gain_db: -12.0,
+                        balance_percent: 50.0,
                         delay_samples: 6,
                         sample_rate: 48_000.0,
                         pan: 0.1,
@@ -299,6 +301,7 @@ fn ir_rack_harness(scale: f32) -> Harness<'static, IrRackState> {
                             selected: Some(1),
                             add_enabled: true,
                             add_loading: false,
+                            balance_mode: false,
                         },
                     )
                     .width(900.0)

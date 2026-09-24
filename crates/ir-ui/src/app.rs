@@ -332,6 +332,7 @@ impl<'a> AppPage<'a> {
                 color: IR_COLORS[slot.color_index as usize % IR_COLORS.len()],
                 enabled: slot.enabled,
                 gain_db: slot.gain_db,
+                balance_percent: slot.balance_percent,
                 delay_samples: slot.delay_samples,
                 sample_rate: slot.sample_rate_hz,
                 pan: slot.pan,
@@ -351,6 +352,7 @@ impl<'a> AppPage<'a> {
             add_enabled: !self.snapshot.file_load_activity.dialog_open
                 && !self.snapshot.file_load_activity.adding_irs(),
             add_loading: self.snapshot.file_load_activity.adding_irs(),
+            balance_mode: self.snapshot.project.balance_mode,
         };
         IrRackCard::new("application_ir_rack", &view)
             .width(width)
@@ -598,6 +600,7 @@ fn map_rack_action(action: IrRackAction) -> AppCommand {
         IrRackAction::AddIr => AppCommand::AddIr,
         IrRackAction::ClearAll => AppCommand::ClearAllIrs,
         IrRackAction::NormalizeAll => AppCommand::NormalizeAllIrs,
+        IrRackAction::SetBalanceMode(enabled) => AppCommand::SetBalanceMode(enabled),
         IrRackAction::Select { id } => AppCommand::SelectIr(IrId(id)),
         IrRackAction::Browse { id } => AppCommand::ReplaceIr(IrId(id)),
         IrRackAction::Remove { id } => AppCommand::RemoveIr(IrId(id)),
@@ -605,6 +608,9 @@ fn map_rack_action(action: IrRackAction) -> AppCommand {
         IrRackAction::MoveDown { id } => AppCommand::MoveIrDown(IrId(id)),
         IrRackAction::SetEnabled { id, enabled } => AppCommand::SetIrEnabled(IrId(id), enabled),
         IrRackAction::SetGainDb { id, gain_db } => AppCommand::SetIrGainDb(IrId(id), gain_db),
+        IrRackAction::SetBalancePercent { id, percent } => {
+            AppCommand::SetIrBalancePercent(IrId(id), percent)
+        }
         IrRackAction::SetDelaySamples { id, delay_samples } => {
             AppCommand::SetIrDelaySamples(IrId(id), delay_samples)
         }

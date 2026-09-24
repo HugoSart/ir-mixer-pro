@@ -142,6 +142,11 @@ floating menus: black at 28% opacity, blur 16, vertical offset 6.
 - Destructive: remain neutral until confirmation unless the action is immediately
   destructive; include a text label or recognizable icon.
 - Fine adjustment: Shift + drag uses one tenth of normal sensitivity.
+- Knobs: while hovered, mouse-wheel up increases the value by 0.01 and
+  mouse-wheel down decreases it by 0.01. The knob consumes that wheel input so
+  a containing rack does not scroll at the same time.
+- Knobs: when focused, Right/Up increases the value by 0.01 and Left/Down
+  decreases it by 0.01. Holding Shift uses a 0.001 fine-adjustment step.
 - Reset: double-click restores the widget's declared default value.
 - Numeric entry: clicking the value opens a compact editor; Enter commits and
   Escape cancels.

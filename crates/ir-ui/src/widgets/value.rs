@@ -1,8 +1,11 @@
-﻿use std::f32::consts::{PI, TAU};
+use std::f32::consts::{PI, TAU};
 
 use egui::{Align2, Color32, DragValue, Response, Sense, Stroke, Ui, Vec2, Widget, pos2, vec2};
 
 use crate::{DesignSystem, TextRole};
+
+const KNOB_SCROLL_STEP: f32 = 0.01;
+const KNOB_KEYBOARD_STEP: f32 = 0.01;
 
 pub struct AudioKnob<'a> {
     value: &'a mut f32,
@@ -13,6 +16,7 @@ pub struct AudioKnob<'a> {
     accent: Option<Color32>,
     formatter: fn(f32, &str) -> String,
     small: bool,
+    enabled: bool,
 }
 
 impl<'a> AudioKnob<'a> {
@@ -27,6 +31,7 @@ impl<'a> AudioKnob<'a> {
             accent: None,
             formatter: format_value,
             small: false,
+            enabled: true,
         }
     }
 
@@ -55,6 +60,11 @@ impl<'a> AudioKnob<'a> {
         self.formatter = formatter;
         self
     }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
 }
 
 impl Widget for AudioKnob<'_> {
@@ -66,16 +76,20 @@ impl Widget for AudioKnob<'_> {
         } else {
             vec2(64.0, 88.0)
         };
-        let (rect, mut response) = ui.allocate_exact_size(size, Sense::click_and_drag());
+        let sense = self
+            .enabled
+            .then_some(Sense::click_and_drag())
+            .unwrap_or(Sense::hover());
+        let (rect, mut response) = ui.allocate_exact_size(size, sense);
         response = response.on_hover_text(format!(
-            "Drag to adjust · Shift for fine adjustment · Double-click to reset to {:.1}{}",
+            "Drag to adjust · Scroll for 0.01 steps · Shift for fine adjustment · Double-click to reset to {:.2}{}",
             self.default, self.suffix
         ));
 
-        if response.double_clicked() {
+        if self.enabled && response.double_clicked() {
             *self.value = self.default.clamp(*self.range.start(), *self.range.end());
             response.mark_changed();
-        } else if response.dragged() {
+        } else if self.enabled && response.dragged() {
             let fine = ui.input(|input| input.modifiers.shift);
             let span = *self.range.end() - *self.range.start();
             let sensitivity = if fine { 0.001 } else { 0.01 };
@@ -84,14 +98,30 @@ impl Widget for AudioKnob<'_> {
             response.mark_changed();
             ui.ctx().request_repaint();
         }
-        if response.clicked() {
+        if self.enabled && response.hovered() {
+            // Use the raw event instead of egui's smoothed delta. A single mouse-wheel
+            // notch is otherwise spread over several frames and applied repeatedly.
+            let scroll_delta = raw_vertical_scroll_delta(ui);
+            // Consume both the current delta and any remaining smoothing so the rack
+            // behind the hovered knob does not scroll.
+            ui.input_mut(|input| input.smooth_scroll_delta.y = 0.0);
+            if adjust_with_scroll(self.value, &self.range, scroll_delta) {
+                response.mark_changed();
+                ui.ctx().request_repaint();
+            }
+        }
+        if self.enabled && response.clicked() {
             response.request_focus();
         }
-        if adjust_with_keyboard(ui, &response, self.value, &self.range) {
+        if self.enabled && adjust_with_keyboard(ui, &response, self.value, &self.range) {
             response.mark_changed();
         }
         response.widget_info(|| {
-            egui::WidgetInfo::slider(ui.is_enabled(), *self.value as f64, self.label)
+            egui::WidgetInfo::slider(
+                ui.is_enabled() && self.enabled,
+                *self.value as f64,
+                self.label,
+            )
         });
 
         let center = pos2(
@@ -401,12 +431,53 @@ fn adjust_with_keyboard(
     });
     if direction != 0 {
         let fine = ui.input(|input| input.modifiers.shift);
-        let step = (*range.end() - *range.start()) * if fine { 0.001 } else { 0.01 };
-        *value = (*value + direction as f32 * step).clamp(*range.start(), *range.end());
+        let step = if fine {
+            KNOB_KEYBOARD_STEP * 0.1
+        } else {
+            KNOB_KEYBOARD_STEP
+        };
+        adjust_by_step(value, range, direction, step);
         true
     } else {
         false
     }
+}
+
+fn raw_vertical_scroll_delta(ui: &Ui) -> f32 {
+    ui.input(|input| {
+        input
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::MouseWheel {
+                    delta, modifiers, ..
+                } if !modifiers.ctrl && !modifiers.command => Some(delta.y),
+                _ => None,
+            })
+            .sum()
+    })
+}
+
+fn adjust_by_step(
+    value: &mut f32,
+    range: &std::ops::RangeInclusive<f32>,
+    direction: i8,
+    step: f32,
+) {
+    *value = (*value + direction as f32 * step).clamp(*range.start(), *range.end());
+}
+
+fn adjust_with_scroll(
+    value: &mut f32,
+    range: &std::ops::RangeInclusive<f32>,
+    scroll_delta: f32,
+) -> bool {
+    if scroll_delta == 0.0 {
+        return false;
+    }
+
+    adjust_by_step(value, range, scroll_delta.signum() as i8, KNOB_SCROLL_STEP);
+    true
 }
 
 fn set_from_pointer(
@@ -420,7 +491,7 @@ fn set_from_pointer(
 }
 
 fn format_value(value: f32, suffix: &str) -> String {
-    format!("{value:.1}{suffix}")
+    format!("{value:.2}{suffix}")
 }
 
 fn format_pan(value: f32, _suffix: &str) -> String {
@@ -452,5 +523,37 @@ mod tests {
         assert_eq!(format_pan(0.0, ""), "C");
         assert_eq!(format_pan(-0.25, ""), "L 25");
         assert_eq!(format_pan(0.75, ""), "R 75");
+    }
+
+    #[test]
+    fn generic_knob_values_show_hundredths() {
+        assert_eq!(format_value(-2.01, " dB"), "-2.01 dB");
+    }
+
+    #[test]
+    fn scroll_adjustment_uses_hundredth_steps_and_clamps() {
+        let range = -1.0..=1.0;
+        let mut value = 0.0;
+
+        assert!(adjust_with_scroll(&mut value, &range, 120.0));
+        assert!((value - 0.01).abs() < f32::EPSILON);
+        assert!(adjust_with_scroll(&mut value, &range, -120.0));
+        assert!(value.abs() < f32::EPSILON);
+
+        value = 1.0;
+        assert!(adjust_with_scroll(&mut value, &range, 1.0));
+        assert_eq!(value, 1.0);
+        assert!(!adjust_with_scroll(&mut value, &range, 0.0));
+    }
+
+    #[test]
+    fn keyboard_adjustment_uses_fixed_hundredth_steps() {
+        let range = -60.0..=12.0;
+        let mut value = -2.0;
+
+        adjust_by_step(&mut value, &range, 1, KNOB_KEYBOARD_STEP);
+        assert!((value - -1.99).abs() < f32::EPSILON);
+        adjust_by_step(&mut value, &range, -1, KNOB_KEYBOARD_STEP);
+        assert!((value - -2.0).abs() < f32::EPSILON);
     }
 }

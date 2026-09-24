@@ -203,6 +203,11 @@ At bottom of rack:
 [ + Add IR ]
 ```
 
+The rack header also places a **Balance Mode** checkbox immediately to the left
+of Add IR. When enabled, the Level column becomes Balance and shows percentage
+knobs. Percentages sum to 100% across all loaded IRs; the sole knob for one IR
+is disabled at 100%.
+
 Support later:
 
 - Drag-and-drop WAV files
@@ -230,6 +235,9 @@ Requirements:
 - Double-click reset
 - Numeric direct entry
 - dB suffix
+
+When Balance Mode is enabled, this same control uses a `%` suffix and a 0–100
+range. Changes redistribute the other IRs immediately to retain a 100% total.
 
 ## 9. Delay Control
 

@@ -14,6 +14,7 @@ pub struct IrRackSlotView<'a> {
     pub color: Color32,
     pub enabled: bool,
     pub gain_db: f32,
+    pub balance_percent: f32,
     pub delay_samples: i32,
     pub sample_rate: f32,
     pub pan: f32,
@@ -32,6 +33,7 @@ pub struct IrRackCardView<'a> {
     pub selected: Option<u64>,
     pub add_enabled: bool,
     pub add_loading: bool,
+    pub balance_mode: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -39,6 +41,7 @@ pub enum IrRackAction {
     AddIr,
     ClearAll,
     NormalizeAll,
+    SetBalanceMode(bool),
     Select { id: u64 },
     Browse { id: u64 },
     Remove { id: u64 },
@@ -46,6 +49,7 @@ pub enum IrRackAction {
     MoveDown { id: u64 },
     SetEnabled { id: u64, enabled: bool },
     SetGainDb { id: u64, gain_db: f32 },
+    SetBalancePercent { id: u64, percent: f32 },
     SetDelaySamples { id: u64, delay_samples: i32 },
     SetPan { id: u64, pan: f32 },
     SetPolarity { id: u64, inverted: bool },
@@ -137,6 +141,15 @@ impl<'a> IrRackCard<'a> {
                         {
                             actions.borrow_mut().push(IrRackAction::AddIr);
                         }
+                        let mut balance_mode = self.view.balance_mode;
+                        if ui
+                            .add(Checkbox::new(&mut balance_mode, "Balance Mode"))
+                            .changed()
+                        {
+                            actions
+                                .borrow_mut()
+                                .push(IrRackAction::SetBalanceMode(balance_mode));
+                        }
                     },
                     |ui| {
                         ScrollArea::horizontal().id_salt("columns").show(ui, |ui| {
@@ -165,9 +178,14 @@ impl<'a> IrRackCard<'a> {
                                     let header_rect =
                                         rect.shrink2(vec2(ROW_HORIZONTAL_PADDING, 0.0));
                                     for (i, (label, _)) in COLUMNS.iter().enumerate() {
+                                        let label = if *label == "Level" && self.view.balance_mode {
+                                            "Balance"
+                                        } else {
+                                            label
+                                        };
                                         cell(ui, header_rect, &column_widths, i, |ui| {
                                             ui.label(
-                                                RichText::new(*label)
+                                                RichText::new(label.to_string())
                                                     .font(TextRole::Metadata.font_id()),
                                             );
                                         });
@@ -197,6 +215,7 @@ impl<'a> IrRackCard<'a> {
                                                         &column_widths,
                                                         &mut selected,
                                                         &mut actions.borrow_mut(),
+                                                        self.view.balance_mode,
                                                     )
                                                 });
                                             }
@@ -270,6 +289,7 @@ fn row(
     widths: &[f32; COLUMNS.len()],
     selected: &mut Option<u64>,
     a: &mut Vec<IrRackAction>,
+    balance_mode: bool,
 ) {
     let ds = DesignSystem::from_context(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(row_width, 68.0), egui::Sense::hover());
@@ -343,18 +363,35 @@ fn row(
         );
     });
     cell(ui, content_rect, widths, 4, |ui| {
-        let mut gain_db = s.gain_db;
-        if ui
-            .add(
-                AudioKnob::new(&mut gain_db, -60.0..=12.0, "IR Level")
-                    .default_value(0.0)
-                    .suffix(" dB")
-                    .accent(ds.colors.border_strong)
-                    .small(true),
-            )
-            .changed()
-        {
-            a.push(IrRackAction::SetGainDb { id, gain_db });
+        if balance_mode {
+            let mut percent = s.balance_percent;
+            if ui
+                .add(
+                    AudioKnob::new(&mut percent, 0.0..=100.0, "IR Balance")
+                        .default_value(100.0)
+                        .suffix("%")
+                        .accent(ds.colors.border_strong)
+                        .small(true)
+                        .enabled(position.count > 1),
+                )
+                .changed()
+            {
+                a.push(IrRackAction::SetBalancePercent { id, percent });
+            }
+        } else {
+            let mut gain_db = s.gain_db;
+            if ui
+                .add(
+                    AudioKnob::new(&mut gain_db, -60.0..=12.0, "IR Level")
+                        .default_value(0.0)
+                        .suffix(" dB")
+                        .accent(ds.colors.border_strong)
+                        .small(true),
+                )
+                .changed()
+            {
+                a.push(IrRackAction::SetGainDb { id, gain_db });
+            }
         }
     });
     cell(ui, content_rect, widths, 5, |ui| {

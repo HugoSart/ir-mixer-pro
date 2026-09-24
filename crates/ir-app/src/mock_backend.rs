@@ -171,6 +171,7 @@ impl MockAudioBackend {
                     slot.normalize = true;
                 }
             }
+            SetBalanceMode(value) => self.snapshot.project.set_balance_mode(value),
             SelectIr(id) => self.snapshot.project.selected_ir = Some(id),
             ReplaceIr(id) => {
                 if let Some(slot) = self.slot_mut(id) {
@@ -181,6 +182,9 @@ impl MockAudioBackend {
             }
             RemoveIr(id) => {
                 self.snapshot.project.ir_slots.retain(|slot| slot.id != id);
+                if self.snapshot.project.balance_mode {
+                    self.snapshot.project.equalize_balance();
+                }
                 if self.snapshot.project.selected_ir == Some(id) {
                     self.snapshot.project.selected_ir =
                         self.snapshot.project.ir_slots.first().map(|slot| slot.id);
@@ -190,6 +194,9 @@ impl MockAudioBackend {
             MoveIrDown(id) => self.move_ir(id, 1),
             SetIrEnabled(id, value) => self.with_slot(id, |slot| slot.enabled = value),
             SetIrGainDb(id, value) => self.with_slot(id, |slot| slot.gain_db = value),
+            SetIrBalancePercent(id, value) => {
+                self.snapshot.project.set_balance_percent(id, value);
+            }
             SetIrDelaySamples(id, value) => self.with_slot(id, |slot| slot.delay_samples = value),
             SetIrPan(id, value) => self.with_slot(id, |slot| slot.pan = value),
             SetIrPolarity(id, value) => self.with_slot(id, |slot| slot.polarity_inverted = value),
@@ -260,6 +267,9 @@ impl MockAudioBackend {
         let mut slot = demo_slot(id.0, &format!("Added_IR_{number}.wav"), -9.0, 0);
         slot.color_index = ((id.0 - 1) % 8) as u8;
         self.snapshot.project.ir_slots.push(slot);
+        if self.snapshot.project.balance_mode {
+            self.snapshot.project.equalize_balance();
+        }
         self.snapshot.project.selected_ir = Some(id);
     }
 }
@@ -421,6 +431,7 @@ fn demo_snapshot() -> AppSnapshot {
             demo_slot(6, "Room_Far.wav", -20.0, 0),
         ],
         selected_ir: Some(IrId(1)),
+        balance_mode: false,
         source: SourceState {
             mode: SourceMode::Preview,
             filename: Some("guitar_DI.wav".into()),
@@ -531,6 +542,7 @@ fn demo_slot(id: u64, filename: &str, gain_db: f32, delay_samples: i32) -> IrSlo
         color_index: ((id - 1) % 8) as u8,
         enabled: id <= 4,
         gain_db,
+        balance_percent: 0.0,
         delay_samples,
         sample_rate_hz: 48_000.0,
         pan: if id == 3 {

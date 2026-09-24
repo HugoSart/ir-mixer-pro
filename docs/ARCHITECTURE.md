@@ -452,9 +452,10 @@ retains headroom.
 Use a versioned serializable schema.
 
 Schema version 2 adds an IR file reference containing the original path,
-optional preset-relative path, size, and decoded-audio fingerprint. Version 1
-documents migrate in memory before use. Missing files remain as errored slots so
-their mixer settings can be retained and relinked.
+optional preset-relative path, size, and decoded-audio fingerprint. Schema
+version 3 adds project-level Balance Mode and per-IR balance percentages.
+Versions 1 and 2 migrate in memory before use. Missing files remain as errored
+slots so their mixer settings can be retained and relinked.
 
 Example:
 
