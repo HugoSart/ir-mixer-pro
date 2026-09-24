@@ -66,6 +66,24 @@ fn complete_page_snapshots_cover_responsive_layouts() {
 }
 
 #[test]
+fn wide_page_without_irs_keeps_the_standard_column_gap() {
+    let backend = MockAudioBackend::default();
+    let mut snapshot = backend.snapshot().clone();
+    snapshot.project.ir_slots.clear();
+    snapshot.frequency_traces.clear();
+    snapshot.phase_traces.clear();
+    snapshot.spectrum_traces.clear();
+    snapshot.combined_waveform.clear();
+
+    let mut harness = page_harness_with_snapshot(
+        egui::vec2(1536.0, 1024.0),
+        FrontendMode::Standalone,
+        snapshot,
+    );
+    harness.snapshot("app_page_empty");
+}
+
+#[test]
 fn complete_page_renders_loading_and_error_states() {
     let backend = MockAudioBackend::default();
     let mut snapshot = backend.snapshot().clone();

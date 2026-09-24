@@ -376,7 +376,13 @@ fn analysis_harness(scale: f32) -> Harness<'static, AnalysisState> {
                     .iter()
                     .enumerate()
                     .map(|(index, curve)| AnalysisTraceView {
-                        label: ["IR 1", "IR 2", "IR 3", "IR 4", "Sum (Mixed)"][index],
+                        label: [
+                            "YAFNM25ROOM YA FDMN 412 M25 ROOM.wav",
+                            "IR 2",
+                            "IR 3",
+                            "IR 4",
+                            "Sum (Mixed)",
+                        ][index],
                         values: curve,
                         color: if index == 4 {
                             ir_ui::DesignSystem::default().colors.text_primary

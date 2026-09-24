@@ -176,47 +176,63 @@ impl<'a> AnalysisPreviewCard<'a> {
 
 fn graph_with_legend(ui: &mut Ui, traces: &[AnalysisTraceView<'_>], height: f32) {
     let ds = DesignSystem::from_context(ui.ctx());
+    const LEGEND_WIDTH: f32 = 116.0;
+    const LEGEND_SWATCH_WIDTH: f32 = 20.0;
     let graph_curves = traces
         .iter()
         .map(|trace| (trace.values, trace.color))
         .collect::<Vec<_>>();
     ui.horizontal_top(|ui| {
-        let legend_width = 116.0;
-        let graph_width = (ui.available_width() - legend_width - ds.metrics.space_md).max(280.0);
+        // The graph width already budgets the explicit gap below. Keeping the
+        // layout's implicit item spacing would make a populated legend widen
+        // the card by one extra spacing unit.
+        ui.spacing_mut().item_spacing.x = 0.0;
+        let graph_width = (ui.available_width() - LEGEND_WIDTH - ds.metrics.space_md).max(280.0);
         ui.add(GraphFrame::new(&graph_curves).size(vec2(graph_width, height)));
         ui.add_space(ds.metrics.space_md);
-        ui.vertical(|ui| {
-            ui.set_width(legend_width);
-            ui.add_space(8.0);
-            for trace in traces {
-                ui.horizontal(|ui| {
-                    let (rect, _) = ui.allocate_exact_size(vec2(34.0, 14.0), egui::Sense::hover());
-                    if trace.emphasized {
-                        for segment in 0..4 {
-                            let left = rect.left() + segment as f32 * 9.0;
-                            ui.painter().line_segment(
-                                [
-                                    egui::pos2(left, rect.center().y),
-                                    egui::pos2((left + 5.0).min(rect.right()), rect.center().y),
-                                ],
+        ui.allocate_ui_with_layout(
+            vec2(LEGEND_WIDTH, height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.add_space(8.0);
+                for trace in traces {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = ds.metrics.space_sm;
+                        let (rect, _) = ui.allocate_exact_size(
+                            vec2(LEGEND_SWATCH_WIDTH, 14.0),
+                            egui::Sense::hover(),
+                        );
+                        if trace.emphasized {
+                            for segment in 0..3 {
+                                let left = rect.left() + segment as f32 * 8.0;
+                                ui.painter().line_segment(
+                                    [
+                                        egui::pos2(left, rect.center().y),
+                                        egui::pos2((left + 4.0).min(rect.right()), rect.center().y),
+                                    ],
+                                    Stroke::new(2.0, trace.color),
+                                );
+                            }
+                        } else {
+                            ui.painter().hline(
+                                rect.x_range(),
+                                rect.center().y,
                                 Stroke::new(2.0, trace.color),
                             );
                         }
-                    } else {
-                        ui.painter().hline(
-                            rect.x_range(),
-                            rect.center().y,
-                            Stroke::new(2.0, trace.color),
-                        );
-                    }
-                    ui.label(
-                        RichText::new(trace.label)
-                            .font(TextRole::Metadata.font_id())
-                            .color(ds.colors.text_secondary),
-                    );
-                });
-            }
-        });
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(trace.label)
+                                    .font(TextRole::Metadata.font_id())
+                                    .color(ds.colors.text_secondary),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(trace.label);
+                    });
+                }
+            },
+        );
     });
 }
 

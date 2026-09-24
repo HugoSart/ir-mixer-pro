@@ -214,7 +214,7 @@ impl<'a> AppPage<'a> {
                         });
                         commands.extend(self.show_analysis(
                             ui,
-                            main_width - self.layout.gap,
+                            main_width,
                             self.layout.lower_card_height,
                         ));
                     },
