@@ -173,4 +173,41 @@ mod tests {
         assert_eq!(output.frame_count(), 8);
         assert!((output.peak() - db_to_gain(-1.0)).abs() < 1.0e-5);
     }
+
+    #[test]
+    fn mixed_rate_export_keeps_native_target_rate_samples() {
+        let high_rate = AudioBuffer::mono(
+            SampleRate(96_000),
+            (0..960)
+                .map(|index| if index % 2 == 0 { 0.25 } else { -0.25 })
+                .collect(),
+        );
+        let low_rate_silence = AudioBuffer::mono(SampleRate(44_100), vec![0.0; 441]);
+        let settings = RenderSettings {
+            sample_rate: SampleRate(96_000),
+            frames: None,
+            channels: ExportChannels::Mono,
+            output_gain_db: 0.0,
+            normalize: false,
+            normalization_target_dbfs: -1.0,
+        };
+        let source = |audio| MixSource {
+            audio,
+            enabled: true,
+            muted: false,
+            soloed: false,
+            gain_db: 0.0,
+            delay_samples: 0,
+            pan: 0.0,
+            polarity_inverted: false,
+            normalize: false,
+        };
+
+        let high_only = render_mix(&[source(&high_rate)], settings).unwrap();
+        let mixed = render_mix(&[source(&low_rate_silence), source(&high_rate)], settings).unwrap();
+
+        assert_eq!(mixed.sample_rate(), SampleRate(96_000));
+        assert_eq!(mixed.frame_count(), high_rate.frame_count());
+        assert_eq!(mixed.channels(), high_only.channels());
+    }
 }

@@ -23,7 +23,9 @@ pub struct NativeAudioBackend {
     dialog_tx: Sender<DialogRequest>,
     dialog_rx: Receiver<DialogResult>,
     dialog_open: bool,
-    audio: HashMap<IrId, Arc<AudioBuffer>>,
+    // Native-rate decoded IRs are the source of truth for metadata, analysis,
+    // export, and every real-time engine rebuild.
+    original_audio: HashMap<IrId, Arc<AudioBuffer>>,
     preview_audio: Option<Arc<AudioBuffer>>,
     next_ir_id: u64,
     preset_paths: HashMap<OptionId, PathBuf>,
@@ -132,7 +134,7 @@ impl Default for NativeAudioBackend {
             dialog_tx,
             dialog_rx,
             dialog_open: false,
-            audio: HashMap::new(),
+            original_audio: HashMap::new(),
             preview_audio: None,
             next_ir_id: 1,
             preset_paths,
@@ -538,17 +540,17 @@ impl NativeAudioBackend {
                 }
                 let config = self.engine_config();
                 let jobs: Vec<_> = self
-                    .audio
+                    .original_audio
                     .iter()
                     .filter_map(|(id, audio)| {
                         self.slot_params(*id)
                             .map(|params| (*id, Arc::clone(audio), params))
                     })
                     .collect();
-                for (id, audio, params) in jobs {
+                for (id, source, params) in jobs {
                     let _ = self.worker_tx.send(WorkerRequest::PrepareIr {
                         id,
-                        audio,
+                        source,
                         config,
                         params,
                     });
@@ -693,11 +695,11 @@ impl NativeAudioBackend {
         }
         self.snapshot.project.ir_slots.clear();
         self.snapshot.project.selected_ir = None;
-        self.audio.clear();
+        self.original_audio.clear();
     }
     fn remove_ir(&mut self, id: IrId) {
         self.send(RuntimeCommand::RemoveSlot(id.0));
-        self.audio.remove(&id);
+        self.original_audio.remove(&id);
         self.snapshot.project.ir_slots.retain(|slot| slot.id != id);
         if self.snapshot.project.balance_mode {
             self.snapshot.project.equalize_balance();
@@ -726,7 +728,7 @@ impl NativeAudioBackend {
             .project
             .ir_slots
             .iter()
-            .filter(|slot| self.audio.contains_key(&slot.id))
+            .filter(|slot| self.original_audio.contains_key(&slot.id))
             .map(|slot| (slot.id, params(slot)))
             .collect::<Vec<_>>();
         for (id, slot_params) in slots {
@@ -884,6 +886,7 @@ impl NativeAudioBackend {
                 id,
                 path,
                 source,
+                prepared_sample_rate,
                 prepared,
                 file_reference,
             } => {
@@ -894,7 +897,7 @@ impl NativeAudioBackend {
                     .iter()
                     .find(|slot| slot.id == id)
                     .is_some_and(|slot| matches!(slot.load_state, ContentState::Loading { .. }));
-                self.audio.insert(id, source.clone());
+                self.original_audio.insert(id, source.clone());
                 if let Some(slot) = self
                     .snapshot
                     .project
@@ -913,12 +916,10 @@ impl NativeAudioBackend {
                     if file_reference.is_some() {
                         slot.file_reference = file_reference;
                     }
-                    slot.sample_rate_hz = source.sample_rate().0 as f32;
-                    slot.metadata = format!(
-                        "{} kHz | {} samples",
-                        source.sample_rate().0 / 1000,
-                        source.frame_count()
-                    );
+                    // Delay is configured in engine samples, so its millisecond
+                    // readout must use the prepared rate rather than file metadata.
+                    slot.sample_rate_hz = prepared_sample_rate as f32;
+                    slot.metadata = ir_metadata(&source);
                     slot.waveform = source.waveform_envelope(180);
                     slot.load_state = ContentState::Ready;
                 }
@@ -964,8 +965,8 @@ impl NativeAudioBackend {
                     audio.frame_count() as f64 / audio.sample_rate().0 as f64;
                 self.snapshot.project.source.elapsed_seconds = 0.0;
                 self.snapshot.project.source.metadata = format!(
-                    "{} kHz | {:.3} s",
-                    audio.sample_rate().0 / 1000,
+                    "{:.1} kHz | {:.3} s",
+                    audio.sample_rate().0 as f32 / 1000.0,
                     self.snapshot.project.source.duration_seconds
                 );
                 self.snapshot.project.source.waveform = audio.waveform_envelope(320);
@@ -1128,7 +1129,7 @@ impl NativeAudioBackend {
             .ir_slots
             .iter()
             .filter_map(|slot| {
-                self.audio.get(&slot.id).map(|audio| ExportSource {
+                self.original_audio.get(&slot.id).map(|audio| ExportSource {
                     label: slot.filename.clone(),
                     color_index: Some(slot.color_index),
                     audio: Arc::clone(audio),
@@ -1331,6 +1332,15 @@ fn new_slot(id: IrId, path: &Path) -> IrSlotState {
         waveform: Vec::new(),
     }
 }
+
+fn ir_metadata(audio: &AudioBuffer) -> String {
+    format!(
+        "{:.1} kHz | {} samples",
+        audio.sample_rate().0 as f32 / 1000.0,
+        audio.frame_count()
+    )
+}
+
 fn preset_directory() -> PathBuf {
     std::env::var_os("APPDATA")
         .map(PathBuf::from)
@@ -1566,6 +1576,43 @@ mod tests {
         assert!(!command_changes_analysis(&AppCommand::SetExportBitDepth(
             OptionId("24".into())
         )));
+    }
+
+    #[test]
+    fn ir_metadata_reports_the_native_rate_and_sample_count() {
+        let audio = AudioBuffer::mono(SampleRate(44_100), vec![0.0; 22_050]);
+
+        assert_eq!(ir_metadata(&audio), "44.1 kHz | 22050 samples");
+    }
+
+    #[test]
+    fn export_sources_keep_each_ir_at_its_native_rate() {
+        let mut backend = NativeAudioBackend::default();
+        let low_rate_id = IrId(1);
+        let high_rate_id = IrId(2);
+        backend
+            .snapshot
+            .project
+            .ir_slots
+            .push(new_slot(low_rate_id, Path::new("low-rate.wav")));
+        backend
+            .snapshot
+            .project
+            .ir_slots
+            .push(new_slot(high_rate_id, Path::new("high-rate.wav")));
+        backend.original_audio.insert(
+            low_rate_id,
+            Arc::new(AudioBuffer::mono(SampleRate(44_100), vec![0.0; 441])),
+        );
+        backend.original_audio.insert(
+            high_rate_id,
+            Arc::new(AudioBuffer::mono(SampleRate(96_000), vec![0.0; 960])),
+        );
+
+        let sources = backend.export_sources();
+
+        assert_eq!(sources[0].audio.sample_rate(), SampleRate(44_100));
+        assert_eq!(sources[1].audio.sample_rate(), SampleRate(96_000));
     }
 
     #[test]

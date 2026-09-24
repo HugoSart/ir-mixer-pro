@@ -225,6 +225,13 @@ device quantum. It accepts 64, 128, and 256 sample configurations. A nonuniform
 head/tail convolver remains a measured optimization if the 16-IR performance
 gate cannot be met.
 
+Each loaded IR has two distinct in-memory representations. The native-rate
+decoded buffer is retained as the immutable source of truth for file metadata,
+analysis, fingerprints, export, and future engine rebuilds. A separate buffer
+is resampled directly from that original to the current engine rate and used
+only to prepare the real-time convolver. Changing the engine rate never chains
+resampling through a previously prepared buffer.
+
 The implementation should be benchmarked before choosing exact partition sizes.
 
 Potential strategy:
@@ -446,6 +453,11 @@ then encoding. Mono is `0.5 * (left + right)`. Monitoring bypass and the
 lookahead limiter are not rendered into the exported IR. Integer PCM export is
 rejected if it would clip while normalization is disabled; 32-bit float export
 retains headroom.
+
+Export resamples every active native-rate source directly to the requested
+export rate. The standalone monitoring rate does not constrain export quality;
+for example, a native 96 kHz IR remains at 96 kHz in a 96 kHz export even when
+the real-time engine is monitoring at 48 kHz.
 
 ## 13. Preset / State Format
 
