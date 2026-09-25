@@ -586,7 +586,6 @@ pub enum AppCommand {
     SetInputNormalize(bool),
     SetInputDevice(OptionId),
     SetInputChannel(OptionId),
-    SetSampleRate(OptionId),
     SetInputBufferSize(OptionId),
     SetMonitoring(bool),
     AddIr,

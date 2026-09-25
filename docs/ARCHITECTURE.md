@@ -370,6 +370,15 @@ and output devices. The output adapter bridges arbitrary driver callback sizes
 to fixed DSP blocks using preallocated buffers, since virtual devices may not
 honor the requested callback quantum exactly.
 
+The selected output endpoint's Windows shared-mode default format is the master
+clock for standalone monitoring. Device selection updates the engine rate and
+rebuilds preview/IR real-time buffers directly from their preserved native-rate
+sources. Preparation jobs carry an engine generation so results for an older
+device or rate cannot enter the current stream. Preview mode opens no input
+stream. Live mode currently requires the selected input's Windows default rate
+to match the output rate and reports a configuration error when they differ.
+Export sample-rate selection remains independent of this monitoring clock.
+
 ## 10. Plugin Pipeline
 
 ```text

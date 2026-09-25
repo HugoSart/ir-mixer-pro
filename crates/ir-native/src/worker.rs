@@ -20,17 +20,25 @@ pub(crate) enum WorkerRequest {
     LoadIr {
         id: IrId,
         path: PathBuf,
+        generation: u64,
         config: EngineConfig,
         params: SlotParameters,
     },
     PrepareIr {
         id: IrId,
         source: Arc<AudioBuffer>,
+        generation: u64,
         config: EngineConfig,
         params: SlotParameters,
     },
     LoadPreview {
         path: PathBuf,
+        generation: u64,
+        sample_rate: SampleRate,
+    },
+    PreparePreview {
+        source: Arc<AudioBuffer>,
+        generation: u64,
         sample_rate: SampleRate,
     },
     Export {
@@ -61,19 +69,26 @@ pub(crate) enum WorkerResult {
         id: IrId,
         path: PathBuf,
         source: Arc<AudioBuffer>,
+        generation: u64,
         prepared_sample_rate: u32,
         prepared: Box<PreparedSlot>,
         file_reference: Option<IrFileReference>,
     },
     IrFailed {
         id: IrId,
+        generation: u64,
         message: String,
     },
     PreviewReady {
         path: PathBuf,
-        audio: Box<AudioBuffer>,
+        source: Arc<AudioBuffer>,
+        prepared: Box<AudioBuffer>,
+        generation: u64,
     },
-    PreviewFailed(String),
+    PreviewFailed {
+        generation: u64,
+        message: String,
+    },
     ExportComplete(PathBuf),
     ExportFailed(String),
     AnalysisReady {
@@ -107,13 +122,23 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
         WorkerRequest::LoadIr {
             id,
             path,
+            generation,
             config,
             params,
         } => match read_wav(&path) {
-            Ok(source) => prepare(id, path, Arc::new(source), config, params, results),
+            Ok(source) => prepare(
+                id,
+                path,
+                Arc::new(source),
+                generation,
+                config,
+                params,
+                results,
+            ),
             Err(error) => {
                 let _ = results.send(WorkerResult::IrFailed {
                     id,
+                    generation,
                     message: error.to_string(),
                 });
             }
@@ -121,22 +146,36 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
         WorkerRequest::PrepareIr {
             id,
             source,
+            generation,
             config,
             params,
-        } => prepare(id, PathBuf::new(), source, config, params, results),
-        WorkerRequest::LoadPreview { path, sample_rate } => match read_wav(&path)
-            .and_then(|audio| audio.resample(sample_rate).map_err(Into::into))
-        {
-            Ok(audio) => {
-                let _ = results.send(WorkerResult::PreviewReady {
-                    path,
-                    audio: Box::new(audio),
+        } => prepare(
+            id,
+            PathBuf::new(),
+            source,
+            generation,
+            config,
+            params,
+            results,
+        ),
+        WorkerRequest::LoadPreview {
+            path,
+            generation,
+            sample_rate,
+        } => match read_wav(&path) {
+            Ok(source) => prepare_preview(Arc::new(source), path, generation, sample_rate, results),
+            Err(error) => {
+                let _ = results.send(WorkerResult::PreviewFailed {
+                    generation,
+                    message: error.to_string(),
                 });
             }
-            Err(error) => {
-                let _ = results.send(WorkerResult::PreviewFailed(error.to_string()));
-            }
         },
+        WorkerRequest::PreparePreview {
+            source,
+            generation,
+            sample_rate,
+        } => prepare_preview(source, PathBuf::new(), generation, sample_rate, results),
         WorkerRequest::Export {
             path,
             sources,
@@ -307,6 +346,7 @@ fn prepare(
     id: IrId,
     path: PathBuf,
     source: Arc<AudioBuffer>,
+    generation: u64,
     config: EngineConfig,
     params: SlotParameters,
     results: &Sender<WorkerResult>,
@@ -316,6 +356,7 @@ fn prepare(
         Err(error) => {
             let _ = results.send(WorkerResult::IrFailed {
                 id,
+                generation,
                 message: error.to_string(),
             });
             return;
@@ -337,6 +378,7 @@ fn prepare(
                 id,
                 path,
                 source,
+                generation,
                 prepared_sample_rate: config.sample_rate,
                 prepared: Box::new(prepared),
                 file_reference,
@@ -345,6 +387,32 @@ fn prepare(
         Err(error) => {
             let _ = results.send(WorkerResult::IrFailed {
                 id,
+                generation,
+                message: error.to_string(),
+            });
+        }
+    }
+}
+
+fn prepare_preview(
+    source: Arc<AudioBuffer>,
+    path: PathBuf,
+    generation: u64,
+    sample_rate: SampleRate,
+    results: &Sender<WorkerResult>,
+) {
+    match source.resample(sample_rate) {
+        Ok(prepared) => {
+            let _ = results.send(WorkerResult::PreviewReady {
+                path,
+                source,
+                prepared: Box::new(prepared),
+                generation,
+            });
+        }
+        Err(error) => {
+            let _ = results.send(WorkerResult::PreviewFailed {
+                generation,
                 message: error.to_string(),
             });
         }
@@ -398,6 +466,7 @@ mod tests {
             IrId(7),
             PathBuf::new(),
             source,
+            1,
             EngineConfig {
                 sample_rate,
                 block_size: 128,
@@ -426,5 +495,34 @@ mod tests {
         assert!(Arc::ptr_eq(&original, &after_96k));
         assert_eq!(after_96k.sample_rate(), SampleRate(44_100));
         assert_eq!(after_96k.frame_count(), 22_050);
+    }
+
+    #[test]
+    fn preview_preparation_preserves_the_native_source() {
+        let original = Arc::new(AudioBuffer::mono(SampleRate(44_100), vec![0.25; 441]));
+        let (results_tx, results_rx) = crossbeam_channel::bounded(1);
+
+        prepare_preview(
+            Arc::clone(&original),
+            PathBuf::new(),
+            12,
+            SampleRate(96_000),
+            &results_tx,
+        );
+
+        match results_rx.recv().expect("worker should return a result") {
+            WorkerResult::PreviewReady {
+                source,
+                prepared,
+                generation,
+                ..
+            } => {
+                assert!(Arc::ptr_eq(&original, &source));
+                assert_eq!(source.sample_rate(), SampleRate(44_100));
+                assert_eq!(prepared.sample_rate(), SampleRate(96_000));
+                assert_eq!(generation, 12);
+            }
+            _ => panic!("unexpected worker result"),
+        }
     }
 }

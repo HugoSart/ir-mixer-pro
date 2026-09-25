@@ -158,7 +158,6 @@ impl MockAudioBackend {
             SetInputNormalize(value) => self.snapshot.project.source.normalize = value,
             SetInputDevice(id) => self.snapshot.project.source.device = id,
             SetInputChannel(id) => self.snapshot.project.source.channel = id,
-            SetSampleRate(id) => self.snapshot.project.source.sample_rate = id,
             SetInputBufferSize(id) => self.snapshot.project.source.buffer_size = id,
             SetMonitoring(value) => self.snapshot.project.source.monitoring = value,
             AddIr => self.add_ir(),
@@ -310,7 +309,6 @@ fn command_changes_analysis(command: &AppCommand) -> bool {
             | SetIrNormalize(_, _)
             | SetIrSolo(_, _)
             | SetIrMute(_, _)
-            | SetSampleRate(_)
             | SetOutputGainDb(_)
     )
 }

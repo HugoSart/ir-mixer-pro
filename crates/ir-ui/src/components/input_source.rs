@@ -33,8 +33,6 @@ pub struct InputSourceCardView<'a> {
     pub device: usize,
     pub channels: &'a [&'a str],
     pub channel: usize,
-    pub sample_rates: &'a [&'a str],
-    pub sample_rate: usize,
     pub buffer_sizes: &'a [&'a str],
     pub buffer_size: usize,
     pub monitoring: bool,
@@ -57,7 +55,6 @@ pub enum InputSourceAction {
     SetNormalize(bool),
     SetDevice(usize),
     SetChannel(usize),
-    SetSampleRate(usize),
     SetBufferSize(usize),
     SetMonitoring(bool),
 }
@@ -246,12 +243,6 @@ impl<'a> InputSourceCard<'a> {
                 v.channels,
                 v.channel,
                 InputSourceAction::SetChannel,
-            ),
-            (
-                "Sample rate",
-                v.sample_rates,
-                v.sample_rate,
-                InputSourceAction::SetSampleRate,
             ),
             (
                 "Buffer size",

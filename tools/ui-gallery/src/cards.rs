@@ -74,8 +74,6 @@ impl CardsDemo {
             device: self.selections[0],
             channels: &["Input 1 (Mono)", "Input 2 (Mono)", "Inputs 1/2 (Stereo)"],
             channel: self.selections[1],
-            sample_rates: &["44.1 kHz", "48 kHz", "96 kHz"],
-            sample_rate: self.selections[2],
             buffer_sizes: &["128 samples", "256 samples", "512 samples"],
             buffer_size: self.selections[3],
             monitoring: self.monitoring,
@@ -112,7 +110,6 @@ impl CardsDemo {
                 InputSourceAction::SetNormalize(value) => self.normalize = value,
                 InputSourceAction::SetDevice(value) => self.selections[0] = value,
                 InputSourceAction::SetChannel(value) => self.selections[1] = value,
-                InputSourceAction::SetSampleRate(value) => self.selections[2] = value,
                 InputSourceAction::SetBufferSize(value) => self.selections[3] = value,
                 InputSourceAction::SetMonitoring(value) => self.monitoring = value,
             }

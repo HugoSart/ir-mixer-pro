@@ -1,5 +1,7 @@
 use crate::dialog::{self, DialogRequest, DialogResult};
-use crate::runtime::{AudioRuntime, DeviceCatalog, RuntimeCommand, RuntimeConfig};
+use crate::runtime::{
+    AudioRuntime, DeviceCatalog, RuntimeCommand, RuntimeConfig, query_output_default_sample_rate,
+};
 use crate::worker::{self, ExportSource, WorkerRequest, WorkerResult};
 use crossbeam_channel::{Receiver, Sender};
 use ir_app::{
@@ -9,7 +11,7 @@ use ir_app::{
 };
 use ir_core::{AudioBuffer, ExportChannels, RenderSettings, SampleRate, WavEncoding};
 use ir_dsp::{EngineConfig, SlotParameters};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,6 +29,11 @@ pub struct NativeAudioBackend {
     // export, and every real-time engine rebuild.
     original_audio: HashMap<IrId, Arc<AudioBuffer>>,
     preview_audio: Option<Arc<AudioBuffer>>,
+    prepared_slots: HashMap<IrId, (u64, Box<ir_dsp::PreparedSlot>)>,
+    preparing_irs: HashSet<IrId>,
+    prepared_preview: Option<(u64, Arc<AudioBuffer>)>,
+    preparing_preview: Option<u64>,
+    engine_generation: u64,
     next_ir_id: u64,
     preset_paths: HashMap<OptionId, PathBuf>,
     active_preset_path: Option<PathBuf>,
@@ -101,6 +108,9 @@ impl Default for NativeAudioBackend {
         if let Some(channel) = snapshot.output_channels.first() {
             snapshot.project.output.channel = channel.id.clone();
         }
+        if let Some(rate) = output_default_sample_rate(&catalog, &snapshot.project.output.device) {
+            snapshot.project.source.sample_rate = OptionId(rate.to_string());
+        }
         snapshot.output_levels_db = [f32::NEG_INFINITY; 2];
         snapshot.output_peaks_db = [f32::NEG_INFINITY; 2];
         snapshot.frequency_traces.clear();
@@ -109,12 +119,12 @@ impl Default for NativeAudioBackend {
         snapshot.combined_waveform.clear();
         snapshot.cpu_percent = 0.0;
         snapshot.latency_ms = 0.0;
-        snapshot.status = if catalog.inputs.is_empty() || catalog.outputs.is_empty() {
-            "No compatible audio devices found".into()
+        snapshot.status = if catalog.outputs.is_empty() {
+            "No compatible output devices found".into()
         } else {
             "Audio Engine Stopped".into()
         };
-        snapshot.status_is_error = catalog.inputs.is_empty() || catalog.outputs.is_empty();
+        snapshot.status_is_error = catalog.outputs.is_empty();
         let (worker_tx, worker_rx) = worker::spawn();
         let (dialog_tx, dialog_rx) = dialog::spawn();
         let (presets, preset_paths) = discover_presets();
@@ -136,6 +146,11 @@ impl Default for NativeAudioBackend {
             dialog_open: false,
             original_audio: HashMap::new(),
             preview_audio: None,
+            prepared_slots: HashMap::new(),
+            preparing_irs: HashSet::new(),
+            prepared_preview: None,
+            preparing_preview: None,
+            engine_generation: 1,
             next_ir_id: 1,
             preset_paths,
             active_preset_path: None,
@@ -227,8 +242,10 @@ impl NativeAudioBackend {
         self.snapshot.project.source.content_state = ContentState::Loading {
             message: "Loading preview WAV".into(),
         };
+        self.preparing_preview = Some(self.engine_generation);
         let _ = self.worker_tx.send(WorkerRequest::LoadPreview {
             path,
+            generation: self.engine_generation,
             sample_rate: SampleRate(self.engine_config().sample_rate),
         });
     }
@@ -317,17 +334,20 @@ impl NativeAudioBackend {
                 }
             }
             SetSourceMode(mode) => {
-                self.snapshot.project.source.mode = mode;
-                self.send(RuntimeCommand::SetSourceLive(mode == SourceMode::Live));
+                if self.snapshot.project.source.mode != mode {
+                    self.snapshot.project.source.mode = mode;
+                    self.restart_runtime();
+                }
             }
             RestartPreview => {
                 self.snapshot.project.source.elapsed_seconds = 0.0;
                 self.send(RuntimeCommand::Restart);
             }
             PlayPreview => {
-                if self.ensure_runtime() {
-                    self.snapshot.project.source.transport = TransportState::Playing;
-                    self.preview_start_pending = true;
+                self.snapshot.project.source.transport = TransportState::Playing;
+                self.preview_start_pending = true;
+                self.ensure_runtime();
+                if self.runtime.is_some() {
                     self.send(RuntimeCommand::Play);
                 }
             }
@@ -356,10 +376,15 @@ impl NativeAudioBackend {
             }
             SetMonitoring(value) => {
                 self.snapshot.project.source.monitoring = value;
-                if value {
+                if self.snapshot.project.source.mode == SourceMode::Live {
+                    // Input stream ownership changes with monitoring so an idle
+                    // capture callback cannot fill an unconsumed ring buffer.
+                    self.restart_runtime();
+                } else if value {
                     self.ensure_runtime();
+                } else {
+                    self.send(RuntimeCommand::SetMonitoring(false));
                 }
-                self.send(RuntimeCommand::SetMonitoring(value));
             }
             SetInputDevice(id) => {
                 self.snapshot.project.source.device = id;
@@ -369,6 +394,8 @@ impl NativeAudioBackend {
             SetOutputDevice(id) => {
                 self.snapshot.project.output.device = id;
                 self.refresh_output_channels();
+                self.refresh_output_sample_rate();
+                self.reconcile_output_sample_rate();
                 self.restart_runtime();
             }
             SetInputChannel(id) => {
@@ -377,10 +404,6 @@ impl NativeAudioBackend {
             }
             SetOutputChannel(id) => {
                 self.snapshot.project.output.channel = id;
-                self.restart_runtime();
-            }
-            SetSampleRate(id) => {
-                self.snapshot.project.source.sample_rate = id;
                 self.restart_runtime();
             }
             SetInputBufferSize(id) => {
@@ -456,6 +479,39 @@ impl NativeAudioBackend {
             sample_rate: selected_u32(&self.snapshot.project.source.sample_rate, 48_000),
             buffer_size: selected_usize(&self.snapshot.project.output.buffer_size, 128),
             max_active_irs: self.max_active_irs,
+            live_input_enabled: self.snapshot.project.source.mode == SourceMode::Live
+                && self.snapshot.project.source.monitoring,
+        }
+    }
+
+    fn reconcile_output_sample_rate(&mut self) -> bool {
+        let Some(rate) =
+            output_default_sample_rate(&self.device_catalog, &self.snapshot.project.output.device)
+        else {
+            self.fail("Selected output device has no default sample rate".into());
+            return false;
+        };
+        let changed = selected_u32(&self.snapshot.project.source.sample_rate, 0) != rate;
+        self.snapshot.project.source.sample_rate = OptionId(rate.to_string());
+        for slot in &mut self.snapshot.project.ir_slots {
+            slot.sample_rate_hz = rate as f32;
+        }
+        if changed {
+            self.analysis_dirty = true;
+        }
+        true
+    }
+
+    fn refresh_output_sample_rate(&mut self) {
+        let device_id = &self.snapshot.project.output.device.0;
+        if let Some(rate) = query_output_default_sample_rate(device_id)
+            && let Some(device) = self
+                .device_catalog
+                .outputs
+                .iter_mut()
+                .find(|device| device.id == *device_id)
+        {
+            device.default_sample_rate = rate;
         }
     }
 
@@ -495,9 +551,80 @@ impl NativeAudioBackend {
         }
     }
 
+    fn schedule_engine_preparations(&mut self) {
+        let generation = self.engine_generation;
+        let config = self.engine_config();
+        let jobs: Vec<_> = self
+            .original_audio
+            .iter()
+            .filter(|(id, _)| {
+                !self.preparing_irs.contains(id)
+                    && self
+                        .prepared_slots
+                        .get(id)
+                        .is_none_or(|(prepared_generation, _)| *prepared_generation != generation)
+            })
+            .filter_map(|(id, source)| {
+                self.slot_params(*id)
+                    .map(|params| (*id, Arc::clone(source), params))
+            })
+            .collect();
+        for (id, source, params) in jobs {
+            self.preparing_irs.insert(id);
+            let _ = self.worker_tx.send(WorkerRequest::PrepareIr {
+                id,
+                source,
+                generation,
+                config,
+                params,
+            });
+        }
+        if let Some(source) = &self.preview_audio
+            && self
+                .prepared_preview
+                .as_ref()
+                .is_none_or(|(prepared_generation, _)| *prepared_generation != generation)
+            && self.preparing_preview != Some(generation)
+        {
+            self.preparing_preview = Some(generation);
+            let _ = self.worker_tx.send(WorkerRequest::PreparePreview {
+                source: Arc::clone(source),
+                generation,
+                sample_rate: SampleRate(config.sample_rate),
+            });
+        }
+    }
+
+    fn engine_preparations_ready(&self) -> bool {
+        let generation = self.engine_generation;
+        self.original_audio.keys().all(|id| {
+            self.prepared_slots
+                .get(id)
+                .is_some_and(|(prepared_generation, _)| *prepared_generation == generation)
+        }) && self.preview_audio.as_ref().is_none_or(|_| {
+            self.prepared_preview
+                .as_ref()
+                .is_some_and(|(prepared_generation, _)| *prepared_generation == generation)
+        })
+    }
+
     fn ensure_runtime(&mut self) -> bool {
         if self.runtime.is_some() {
             return true;
+        }
+        let previous_rate = selected_u32(&self.snapshot.project.source.sample_rate, 0);
+        self.refresh_output_sample_rate();
+        if !self.reconcile_output_sample_rate() {
+            return false;
+        }
+        if previous_rate != selected_u32(&self.snapshot.project.source.sample_rate, 0) {
+            self.invalidate_engine_preparations();
+        }
+        self.schedule_engine_preparations();
+        if !self.engine_preparations_ready() {
+            self.snapshot.status = "Preparing audio for the output device".into();
+            self.snapshot.status_is_error = false;
+            return false;
         }
         match AudioRuntime::start(self.runtime_config()) {
             Ok(runtime) => {
@@ -528,32 +655,19 @@ impl NativeAudioBackend {
                 self.send(RuntimeCommand::SetLimiter(
                     self.snapshot.project.output.limit_output,
                 ));
-                if let Some(preview) = &self.preview_audio {
+                if let Some((_, preview)) = &self.prepared_preview {
                     self.send(RuntimeCommand::SetPreview {
                         normalization_gain: preview.normalization_gain(0.0),
                         audio: Box::new((**preview).clone()),
                     });
                 }
+                let prepared = std::mem::take(&mut self.prepared_slots);
+                for (_, (_, slot)) in prepared {
+                    self.send(RuntimeCommand::ReplaceSlot(slot));
+                }
                 if self.snapshot.project.source.transport == TransportState::Playing {
                     self.preview_start_pending = true;
                     self.send(RuntimeCommand::Play);
-                }
-                let config = self.engine_config();
-                let jobs: Vec<_> = self
-                    .original_audio
-                    .iter()
-                    .filter_map(|(id, audio)| {
-                        self.slot_params(*id)
-                            .map(|params| (*id, Arc::clone(audio), params))
-                    })
-                    .collect();
-                for (id, source, params) in jobs {
-                    let _ = self.worker_tx.send(WorkerRequest::PrepareIr {
-                        id,
-                        source,
-                        config,
-                        params,
-                    });
                 }
                 true
             }
@@ -565,12 +679,22 @@ impl NativeAudioBackend {
     }
 
     fn restart_runtime(&mut self) {
-        if self.runtime.take().is_some()
-            && (self.snapshot.project.source.monitoring
-                || self.snapshot.project.source.transport == TransportState::Playing)
+        self.runtime = None;
+        self.invalidate_engine_preparations();
+        self.schedule_engine_preparations();
+        if self.snapshot.project.source.monitoring
+            || self.snapshot.project.source.transport == TransportState::Playing
         {
             self.ensure_runtime();
         }
+    }
+
+    fn invalidate_engine_preparations(&mut self) {
+        self.engine_generation = self.engine_generation.wrapping_add(1);
+        self.prepared_slots.clear();
+        self.preparing_irs.clear();
+        self.prepared_preview = None;
+        self.preparing_preview = None;
     }
     fn send(&mut self, command: RuntimeCommand) {
         if let Some(runtime) = &mut self.runtime
@@ -650,9 +774,11 @@ impl NativeAudioBackend {
             };
         }
         if let Some(params) = self.slot_params(id) {
+            self.preparing_irs.insert(id);
             let _ = self.worker_tx.send(WorkerRequest::LoadIr {
                 id,
                 path,
+                generation: self.engine_generation,
                 config: self.engine_config(),
                 params,
             });
@@ -696,10 +822,14 @@ impl NativeAudioBackend {
         self.snapshot.project.ir_slots.clear();
         self.snapshot.project.selected_ir = None;
         self.original_audio.clear();
+        self.prepared_slots.clear();
+        self.preparing_irs.clear();
     }
     fn remove_ir(&mut self, id: IrId) {
         self.send(RuntimeCommand::RemoveSlot(id.0));
         self.original_audio.remove(&id);
+        self.prepared_slots.remove(&id);
+        self.preparing_irs.remove(&id);
         self.snapshot.project.ir_slots.retain(|slot| slot.id != id);
         if self.snapshot.project.balance_mode {
             self.snapshot.project.equalize_balance();
@@ -886,6 +1016,7 @@ impl NativeAudioBackend {
                 id,
                 path,
                 source,
+                generation,
                 prepared_sample_rate,
                 prepared,
                 file_reference,
@@ -897,7 +1028,7 @@ impl NativeAudioBackend {
                     .iter()
                     .find(|slot| slot.id == id)
                     .is_some_and(|slot| matches!(slot.load_state, ContentState::Loading { .. }));
-                self.original_audio.insert(id, source.clone());
+                self.original_audio.insert(id, Arc::clone(&source));
                 if let Some(slot) = self
                     .snapshot
                     .project
@@ -916,22 +1047,47 @@ impl NativeAudioBackend {
                     if file_reference.is_some() {
                         slot.file_reference = file_reference;
                     }
-                    // Delay is configured in engine samples, so its millisecond
-                    // readout must use the prepared rate rather than file metadata.
-                    slot.sample_rate_hz = prepared_sample_rate as f32;
                     slot.metadata = ir_metadata(&source);
                     slot.waveform = source.waveform_envelope(180);
-                    slot.load_state = ContentState::Ready;
+                    if generation == self.engine_generation {
+                        // Delay is configured in engine samples, so its millisecond
+                        // readout must use the prepared rate rather than file metadata.
+                        slot.sample_rate_hz = prepared_sample_rate as f32;
+                        slot.load_state = ContentState::Ready;
+                    }
                 }
-                self.send(RuntimeCommand::ReplaceSlot(prepared));
-                if was_loading {
-                    self.finish_ir_load(id);
+                if generation == self.engine_generation {
+                    self.preparing_irs.remove(&id);
+                    if self.runtime.is_some() {
+                        self.send(RuntimeCommand::ReplaceSlot(prepared));
+                    } else {
+                        self.prepared_slots.insert(id, (generation, prepared));
+                    }
+                    if was_loading {
+                        self.finish_ir_load(id);
+                    }
+                    self.snapshot.status = "Impulse response ready".into();
+                    self.snapshot.status_is_error = false;
+                    self.analysis_dirty = true;
+                } else {
+                    self.schedule_engine_preparations();
                 }
-                self.snapshot.status = "Impulse response ready".into();
-                self.snapshot.status_is_error = false;
-                self.analysis_dirty = true;
+                if self.snapshot.project.source.monitoring
+                    || self.snapshot.project.source.transport == TransportState::Playing
+                {
+                    self.ensure_runtime();
+                }
             }
-            WorkerResult::IrFailed { id, message } => {
+            WorkerResult::IrFailed {
+                id,
+                generation,
+                message,
+            } => {
+                if generation != self.engine_generation && self.original_audio.contains_key(&id) {
+                    self.schedule_engine_preparations();
+                    return;
+                }
+                self.preparing_irs.remove(&id);
                 let was_loading = self
                     .snapshot
                     .project
@@ -955,31 +1111,59 @@ impl NativeAudioBackend {
                 }
                 self.fail(message);
             }
-            WorkerResult::PreviewReady { path, audio } => {
-                self.snapshot.project.source.filename = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(str::to_owned);
-                self.snapshot.project.source.file_path = Some(path);
+            WorkerResult::PreviewReady {
+                path,
+                source,
+                prepared,
+                generation,
+            } => {
+                if !path.as_os_str().is_empty() {
+                    self.snapshot.project.source.filename = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .map(str::to_owned);
+                    self.snapshot.project.source.file_path = Some(path);
+                }
                 self.snapshot.project.source.duration_seconds =
-                    audio.frame_count() as f64 / audio.sample_rate().0 as f64;
-                self.snapshot.project.source.elapsed_seconds = 0.0;
+                    source.frame_count() as f64 / source.sample_rate().0 as f64;
                 self.snapshot.project.source.metadata = format!(
                     "{:.1} kHz | {:.3} s",
-                    audio.sample_rate().0 as f32 / 1000.0,
+                    source.sample_rate().0 as f32 / 1000.0,
                     self.snapshot.project.source.duration_seconds
                 );
-                self.snapshot.project.source.waveform = audio.waveform_envelope(320);
-                self.snapshot.project.source.content_state = ContentState::Ready;
-                self.snapshot.file_load_activity.preview_loading = false;
-                let audio = Arc::new(*audio);
-                self.preview_audio = Some(Arc::clone(&audio));
-                self.send(RuntimeCommand::SetPreview {
-                    normalization_gain: audio.normalization_gain(0.0),
-                    audio: Box::new((*audio).clone()),
-                });
+                self.snapshot.project.source.waveform = source.waveform_envelope(320);
+                self.preview_audio = Some(source);
+                if generation == self.engine_generation {
+                    self.snapshot.project.source.elapsed_seconds = 0.0;
+                    self.snapshot.project.source.content_state = ContentState::Ready;
+                    self.snapshot.file_load_activity.preview_loading = false;
+                    self.preparing_preview = None;
+                    let prepared = Arc::new(*prepared);
+                    self.prepared_preview = Some((generation, Arc::clone(&prepared)));
+                    if self.runtime.is_some() {
+                        self.send(RuntimeCommand::SetPreview {
+                            normalization_gain: prepared.normalization_gain(0.0),
+                            audio: Box::new((*prepared).clone()),
+                        });
+                    }
+                } else {
+                    self.schedule_engine_preparations();
+                }
+                if self.snapshot.project.source.monitoring
+                    || self.snapshot.project.source.transport == TransportState::Playing
+                {
+                    self.ensure_runtime();
+                }
             }
-            WorkerResult::PreviewFailed(message) => {
+            WorkerResult::PreviewFailed {
+                generation,
+                message,
+            } => {
+                if generation != self.engine_generation && self.preview_audio.is_some() {
+                    self.schedule_engine_preparations();
+                    return;
+                }
+                self.preparing_preview = None;
                 self.snapshot.file_load_activity.preview_loading = false;
                 self.snapshot.project.source.content_state = ContentState::Error {
                     message: message.clone(),
@@ -1081,9 +1265,11 @@ impl NativeAudioBackend {
                     })
                     .collect();
                 for (id, path, params) in slots {
+                    self.preparing_irs.insert(id);
                     let _ = self.worker_tx.send(WorkerRequest::LoadIr {
                         id,
                         path,
+                        generation: self.engine_generation,
                         config: self.engine_config(),
                         params,
                     });
@@ -1219,7 +1405,6 @@ fn command_changes_analysis(command: &AppCommand) -> bool {
             | SetIrNormalize(_, _)
             | SetIrSolo(_, _)
             | SetIrMute(_, _)
-            | SetSampleRate(_)
             | SetOutputGainDb(_)
     )
 }
@@ -1271,6 +1456,14 @@ fn input_channel_choices(catalog: &DeviceCatalog, device_id: &OptionId) -> Vec<C
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn output_default_sample_rate(catalog: &DeviceCatalog, device_id: &OptionId) -> Option<u32> {
+    catalog
+        .outputs
+        .iter()
+        .find(|device| device.id == device_id.0)
+        .map(|device| device.default_sample_rate)
 }
 
 fn output_channel_choices(catalog: &DeviceCatalog, device_id: &OptionId) -> Vec<Choice> {
@@ -1624,17 +1817,20 @@ mod tests {
                 id: "input-0".into(),
                 name: "Four input interface".into(),
                 channels: 4,
+                default_sample_rate: 48_000,
             }],
             outputs: vec![
                 DeviceInfo {
                     id: "output-0".into(),
                     name: "Mono output".into(),
                     channels: 1,
+                    default_sample_rate: 44_100,
                 },
                 DeviceInfo {
                     id: "output-1".into(),
                     name: "Three output interface".into(),
                     channels: 3,
+                    default_sample_rate: 96_000,
                 },
             ],
             default_input_id: Some("input-0".into()),
@@ -1653,6 +1849,53 @@ mod tests {
         assert_eq!(three.len(), 2);
         assert_eq!(three[0].label, "Output 1 / 2");
         assert_eq!(three[1].label, "Output 3 (Mono)");
+    }
+
+    #[test]
+    fn selected_output_default_rate_drives_the_engine_and_delay_units() {
+        let mut backend = NativeAudioBackend {
+            device_catalog: DeviceCatalog {
+                inputs: Vec::new(),
+                outputs: vec![crate::runtime::DeviceInfo {
+                    id: "test-output".into(),
+                    name: "96 kHz interface".into(),
+                    channels: 2,
+                    default_sample_rate: 96_000,
+                }],
+                default_input_id: None,
+                default_output_id: Some("test-output".into()),
+            },
+            ..Default::default()
+        };
+        backend.snapshot.project.output.device = OptionId("test-output".into());
+        backend
+            .snapshot
+            .project
+            .ir_slots
+            .push(new_slot(IrId(1), Path::new("native-44k.wav")));
+
+        assert!(backend.reconcile_output_sample_rate());
+
+        assert_eq!(backend.snapshot.project.source.sample_rate.0, "96000");
+        assert_eq!(backend.engine_config().sample_rate, 96_000);
+        assert_eq!(
+            backend.snapshot.project.ir_slots[0].sample_rate_hz,
+            96_000.0
+        );
+    }
+
+    #[test]
+    fn input_stream_is_requested_only_for_live_monitoring() {
+        let mut backend = NativeAudioBackend::default();
+        backend.snapshot.project.source.monitoring = true;
+        backend.snapshot.project.source.mode = SourceMode::Preview;
+        assert!(!backend.runtime_config().live_input_enabled);
+
+        backend.snapshot.project.source.mode = SourceMode::Live;
+        assert!(backend.runtime_config().live_input_enabled);
+
+        backend.snapshot.project.source.monitoring = false;
+        assert!(!backend.runtime_config().live_input_enabled);
     }
 
     #[test]

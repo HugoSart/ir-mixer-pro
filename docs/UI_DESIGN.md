@@ -151,8 +151,11 @@ Show:
 - Input channel
 - Output device
 - Buffer size
-- Sample rate if configurable
 - Monitoring toggle
+
+The standalone engine follows the selected output endpoint's Windows shared-mode
+default sample rate. Show that active rate in status/analysis readouts rather
+than as an editable input control. Export retains its independent rate selector.
 
 Plugin builds should hide device-specific controls cleanly rather than leaving disabled empty widgets.
 

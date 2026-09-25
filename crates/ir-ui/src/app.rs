@@ -271,7 +271,6 @@ impl<'a> AppPage<'a> {
         let source = &self.snapshot.project.source;
         let devices = labels(&self.snapshot.input_devices);
         let channels = labels(&self.snapshot.input_channels);
-        let sample_rates = labels(&self.snapshot.sample_rates);
         let buffer_sizes = labels(&self.snapshot.buffer_sizes);
         let view = InputSourceCardView {
             mode: match source.mode {
@@ -295,8 +294,6 @@ impl<'a> AppPage<'a> {
             device: selected_index(&self.snapshot.input_devices, &source.device),
             channels: &channels,
             channel: selected_index(&self.snapshot.input_channels, &source.channel),
-            sample_rates: &sample_rates,
-            sample_rate: selected_index(&self.snapshot.sample_rates, &source.sample_rate),
             buffer_sizes: &buffer_sizes,
             buffer_size: selected_index(&self.snapshot.buffer_sizes, &source.buffer_size),
             monitoring: source.monitoring,
@@ -545,9 +542,6 @@ impl<'a> AppPage<'a> {
             }
             InputSourceAction::SetChannel(index) => {
                 AppCommand::SetInputChannel(selected_id(&self.snapshot.input_channels, index)?)
-            }
-            InputSourceAction::SetSampleRate(index) => {
-                AppCommand::SetSampleRate(selected_id(&self.snapshot.sample_rates, index)?)
             }
             InputSourceAction::SetBufferSize(index) => {
                 AppCommand::SetInputBufferSize(selected_id(&self.snapshot.buffer_sizes, index)?)

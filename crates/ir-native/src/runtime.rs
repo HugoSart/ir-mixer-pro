@@ -14,6 +14,7 @@ pub struct DeviceInfo {
     pub id: String,
     pub name: String,
     pub channels: usize,
+    pub default_sample_rate: u32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -39,11 +40,12 @@ impl DeviceCatalog {
                 devices
                     .enumerate()
                     .filter_map(|(index, device)| {
-                        let channels = device.default_input_config().ok()?.channels() as usize;
+                        let config = device.default_input_config().ok()?;
                         Some(DeviceInfo {
                             id: format!("input-{index}"),
                             name: device.name().unwrap_or_else(|_| format!("Input {index}")),
-                            channels,
+                            channels: config.channels() as usize,
+                            default_sample_rate: config.sample_rate().0,
                         })
                     })
                     .collect()
@@ -55,11 +57,12 @@ impl DeviceCatalog {
                 devices
                     .enumerate()
                     .filter_map(|(index, device)| {
-                        let channels = device.default_output_config().ok()?.channels() as usize;
+                        let config = device.default_output_config().ok()?;
                         Some(DeviceInfo {
                             id: format!("output-{index}"),
                             name: device.name().unwrap_or_else(|_| format!("Output {index}")),
-                            channels,
+                            channels: config.channels() as usize,
+                            default_sample_rate: config.sample_rate().0,
                         })
                     })
                     .collect()
@@ -86,6 +89,17 @@ impl DeviceCatalog {
     }
 }
 
+pub fn query_output_default_sample_rate(device_id: &str) -> Option<u32> {
+    let index = parse_index(device_id)?;
+    cpal::default_host()
+        .output_devices()
+        .ok()?
+        .nth(index)?
+        .default_output_config()
+        .ok()
+        .map(|config| config.sample_rate().0)
+}
+
 #[derive(Clone, Debug)]
 pub struct RuntimeConfig {
     pub input_device_id: String,
@@ -95,6 +109,7 @@ pub struct RuntimeConfig {
     pub sample_rate: u32,
     pub buffer_size: usize,
     pub max_active_irs: usize,
+    pub live_input_enabled: bool,
 }
 
 #[derive(Debug, Error)]
@@ -167,7 +182,7 @@ enum HostCommand {
 }
 
 struct LocalAudioRuntime {
-    _input: cpal::Stream,
+    _input: Option<cpal::Stream>,
     _output: cpal::Stream,
     commands: Producer<RuntimeCommand>,
     retired: Consumer<Retired>,
@@ -284,46 +299,67 @@ impl LocalAudioRuntime {
         spectrum_results: crossbeam_channel::Sender<Vec<f32>>,
     ) -> Result<Self, RuntimeError> {
         let host = cpal::default_host();
-        let input_index =
-            parse_index(&config.input_device_id).ok_or(RuntimeError::InputUnavailable)?;
         let output_index =
             parse_index(&config.output_device_id).ok_or(RuntimeError::OutputUnavailable)?;
-        let input_device = host
-            .input_devices()
-            .ok()
-            .and_then(|mut devices| devices.nth(input_index))
-            .ok_or(RuntimeError::InputUnavailable)?;
         let output_device = host
             .output_devices()
             .ok()
             .and_then(|mut devices| devices.nth(output_index))
             .ok_or(RuntimeError::OutputUnavailable)?;
-        let input_supported = input_device
-            .default_input_config()
-            .map_err(|error| RuntimeError::Configuration(error.to_string()))?;
         let output_supported = output_device
             .default_output_config()
             .map_err(|error| RuntimeError::Configuration(error.to_string()))?;
-        let input_channels = input_supported.channels() as usize;
+        if output_supported.sample_rate().0 != config.sample_rate {
+            return Err(RuntimeError::Configuration(format!(
+                "the output device default rate changed from {} Hz to {} Hz; restart the audio engine",
+                config.sample_rate,
+                output_supported.sample_rate().0
+            )));
+        }
         let output_channels = output_supported.channels() as usize;
-        if input_channels == 0 || output_channels == 0 {
+        if output_channels == 0 {
             return Err(RuntimeError::Configuration(
                 "selected audio device exposes no usable channels".into(),
             ));
         }
+        let input_details = if config.live_input_enabled {
+            let input_index =
+                parse_index(&config.input_device_id).ok_or(RuntimeError::InputUnavailable)?;
+            let input_device = host
+                .input_devices()
+                .ok()
+                .and_then(|mut devices| devices.nth(input_index))
+                .ok_or(RuntimeError::InputUnavailable)?;
+            let input_supported = input_device
+                .default_input_config()
+                .map_err(|error| RuntimeError::Configuration(error.to_string()))?;
+            if input_supported.sample_rate().0 != config.sample_rate {
+                return Err(RuntimeError::Configuration(format!(
+                    "live input is {} Hz but the selected output is {} Hz; set both Windows default formats to the same rate",
+                    input_supported.sample_rate().0,
+                    config.sample_rate
+                )));
+            }
+            if input_supported.channels() == 0 {
+                return Err(RuntimeError::Configuration(
+                    "selected input device exposes no usable channels".into(),
+                ));
+            }
+            Some((input_device, input_supported))
+        } else {
+            None
+        };
         // Device topology may change after enumeration (or a preset may retain
         // an older selection). Clamp at stream creation so a stale UI choice
         // cannot prevent preview playback from starting.
-        let input_channel = config.input_channel.min(input_channels - 1);
+        let input_channel = input_details
+            .as_ref()
+            .map(|(_, supported)| config.input_channel.min(supported.channels() as usize - 1))
+            .unwrap_or(0);
         let output_channel = if output_channels > 1 {
             config.output_channel.min(output_channels - 2)
         } else {
             0
-        };
-        let input_config = cpal::StreamConfig {
-            channels: input_supported.channels(),
-            sample_rate: cpal::SampleRate(config.sample_rate),
-            buffer_size: cpal::BufferSize::Fixed(config.buffer_size as u32),
         };
         let output_config = cpal::StreamConfig {
             channels: output_supported.channels(),
@@ -336,15 +372,24 @@ impl LocalAudioRuntime {
         let (command_producer, command_consumer) = RingBuffer::<RuntimeCommand>::new(256);
         let (retire_producer, retire_consumer) = RingBuffer::<Retired>::new(64);
         let (spectrum_producer, spectrum_consumer) = RingBuffer::<SpectrumBlock>::new(8);
-        let input = build_input_stream(
-            &input_device,
-            &input_config,
-            input_supported.sample_format(),
-            input_producer,
-            input_channel,
-            Arc::clone(&metrics),
-            Arc::clone(&stream_error),
-        )?;
+        let input = if let Some((input_device, input_supported)) = input_details {
+            let input_config = cpal::StreamConfig {
+                channels: input_supported.channels(),
+                sample_rate: cpal::SampleRate(config.sample_rate),
+                buffer_size: cpal::BufferSize::Fixed(config.buffer_size as u32),
+            };
+            Some(build_input_stream(
+                &input_device,
+                &input_config,
+                input_supported.sample_format(),
+                input_producer,
+                input_channel,
+                Arc::clone(&metrics),
+                Arc::clone(&stream_error),
+            )?)
+        } else {
+            None
+        };
         let engine_config = EngineConfig {
             sample_rate: config.sample_rate,
             block_size: config.buffer_size,
@@ -368,7 +413,9 @@ impl LocalAudioRuntime {
             Arc::clone(&stream_error),
         )?;
         output.play()?;
-        input.play()?;
+        if let Some(input) = &input {
+            input.play()?;
+        }
         Ok(Self {
             _input: input,
             _output: output,

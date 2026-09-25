@@ -185,9 +185,13 @@ Standalone-only controls:
 - Input channel
 - Output device
 - Output channel configuration
-- Sample rate
 - Buffer size
 - Monitor enable
+
+In Windows shared mode, the selected output endpoint owns the monitoring clock.
+The standalone engine follows that endpoint's default sample rate; users change
+the shared-mode rate in Windows or the device control panel. The app displays
+the active rate but does not offer a competing monitoring-rate selector.
 
 The user should be able to switch between preview file and live input without losing the IR mix.
 

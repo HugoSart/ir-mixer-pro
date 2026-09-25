@@ -40,8 +40,6 @@ fn harness_with_loading(mode: SourceMode, scale: f32, loading: bool) -> Harness<
                     device: 0,
                     channels: &["Input 1", "Input 2"],
                     channel: 0,
-                    sample_rates: &["44.1 kHz", "48 kHz"],
-                    sample_rate: 0,
                     buffer_sizes: &["128 samples", "256 samples"],
                     buffer_size: 0,
                     monitoring: false,
