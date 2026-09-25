@@ -1,7 +1,7 @@
 # IR Mixer — UI Design Specification
 
 > The normative colors, typography, spacing, geometry, and interaction tokens are
-> defined in [UI_DESIGN_SYSTEM.md](UI_DESIGN_SYSTEM.md). This document defines
+> defined in [ui-design-system.md](ui-design-system.md). This document defines
 > product layout and behavior; the design-system document defines visual treatment.
 
 ## 1. Design Goal

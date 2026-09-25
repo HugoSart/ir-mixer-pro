@@ -23,9 +23,15 @@ ir-mixer/
 ├── Cargo.toml
 ├── AGENTS.md
 ├── docs/
-│   ├── PRODUCT_SPEC.md
-│   ├── ARCHITECTURE.md
-│   └── UI_DESIGN.md
+│   ├── product-spec.md
+│   ├── architecture.md
+│   └── build-and-release.md
+│
+├── design/
+│   ├── ui-design.md
+│   ├── ui-design-system.md
+│   ├── mockups/
+│   └── logos/
 │
 ├── crates/
 │   ├── ir-core/

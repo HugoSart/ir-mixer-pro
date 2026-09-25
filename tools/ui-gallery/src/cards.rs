@@ -4,6 +4,8 @@ use ir_ui::{
     widgets::{deterministic_curve, deterministic_waveform},
 };
 
+const BALANCE_SILENCE_DB: f32 = -144.0;
+
 pub struct CardsDemo {
     mode: SourceMode,
     transport: TransportState,
@@ -125,6 +127,7 @@ struct DummyIrSlot {
     color_index: usize,
     enabled: bool,
     gain_db: f32,
+    balance_percent: f32,
     delay_samples: i32,
     pan: f32,
     polarity_inverted: bool,
@@ -137,6 +140,7 @@ pub struct IrRackDemo {
     slots: Vec<DummyIrSlot>,
     selected: Option<u64>,
     next_id: u64,
+    balance_mode: bool,
     last_action: String,
 }
 
@@ -153,6 +157,7 @@ impl Default for IrRackDemo {
             ],
             selected: Some(1),
             next_id: 7,
+            balance_mode: false,
             last_action: "Six dummy IR slots are available for review.".into(),
         }
     }
@@ -173,6 +178,7 @@ impl IrRackDemo {
                 color: IR_COLORS[slot.color_index % IR_COLORS.len()],
                 enabled: slot.enabled,
                 gain_db: slot.gain_db,
+                balance_percent: slot.balance_percent,
                 delay_samples: slot.delay_samples,
                 sample_rate: 48_000.0,
                 pan: slot.pan,
@@ -190,6 +196,7 @@ impl IrRackDemo {
             selected: self.selected,
             add_enabled: true,
             add_loading: false,
+            balance_mode: self.balance_mode,
         };
         for action in IrRackCard::new("ir_rack_card", &view)
             .width(width)
@@ -216,6 +223,9 @@ impl IrRackDemo {
                     0.0,
                     true,
                 ));
+                if self.balance_mode {
+                    self.equalize_balance();
+                }
             }
             IrRackAction::ClearAll => self.slots.clear(),
             IrRackAction::NormalizeAll => {
@@ -223,8 +233,14 @@ impl IrRackDemo {
                     slot.normalize = true;
                 }
             }
+            IrRackAction::SetBalanceMode(enabled) => self.set_balance_mode(enabled),
             IrRackAction::Select { id } => self.selected = Some(id),
-            IrRackAction::Remove { id } => self.slots.retain(|slot| slot.id != id),
+            IrRackAction::Remove { id } => {
+                self.slots.retain(|slot| slot.id != id);
+                if self.balance_mode {
+                    self.equalize_balance();
+                }
+            }
             IrRackAction::MoveUp { id } => self.move_slot(id, -1),
             IrRackAction::MoveDown { id } => self.move_slot(id, 1),
             IrRackAction::Browse { id } => with_slot(&mut self.slots, id, |slot| {
@@ -239,6 +255,9 @@ impl IrRackDemo {
             }
             IrRackAction::SetGainDb { id, gain_db } => {
                 with_slot(&mut self.slots, id, |slot| slot.gain_db = gain_db)
+            }
+            IrRackAction::SetBalancePercent { id, percent } => {
+                self.set_balance_percent(id, percent);
             }
             IrRackAction::SetDelaySamples { id, delay_samples } => {
                 with_slot(&mut self.slots, id, |slot| {
@@ -273,6 +292,107 @@ impl IrRackDemo {
             }
         }
     }
+
+    fn set_balance_mode(&mut self, enabled: bool) {
+        self.balance_mode = enabled;
+        if enabled {
+            self.normalize_balance_from_gains();
+        }
+    }
+
+    fn equalize_balance(&mut self) {
+        let count = self.slots.len();
+        if count == 0 {
+            return;
+        }
+
+        let share = 100.0 / count as f32;
+        let mut assigned = 0.0;
+        for slot in self.slots.iter_mut().take(count - 1) {
+            slot.balance_percent = share;
+            slot.gain_db = balance_percent_to_gain_db(share);
+            assigned += share;
+        }
+        if let Some(slot) = self.slots.last_mut() {
+            slot.balance_percent = 100.0 - assigned;
+            slot.gain_db = balance_percent_to_gain_db(slot.balance_percent);
+        }
+    }
+
+    fn set_balance_percent(&mut self, id: u64, percent: f32) {
+        let Some(selected_index) = self.slots.iter().position(|slot| slot.id == id) else {
+            return;
+        };
+        let count = self.slots.len();
+        if count == 1 {
+            self.equalize_balance();
+            return;
+        }
+
+        let percent = percent.clamp(0.0, 100.0);
+        let other_indices = (0..count)
+            .filter(|index| *index != selected_index)
+            .collect::<Vec<_>>();
+        let current_other_total: f32 = other_indices
+            .iter()
+            .map(|index| self.slots[*index].balance_percent.max(0.0))
+            .sum();
+        let remaining = 100.0 - percent;
+        self.slots[selected_index].balance_percent = percent;
+
+        let mut assigned = percent;
+        for index in other_indices.iter().take(other_indices.len() - 1) {
+            let next = if current_other_total > f32::EPSILON {
+                self.slots[*index].balance_percent.max(0.0) / current_other_total * remaining
+            } else {
+                remaining / other_indices.len() as f32
+            };
+            self.slots[*index].balance_percent = next;
+            assigned += next;
+        }
+        if let Some(last_index) = other_indices.last() {
+            self.slots[*last_index].balance_percent = (100.0 - assigned).max(0.0);
+        }
+        self.sync_balance_gains();
+    }
+
+    fn normalize_balance_from_gains(&mut self) {
+        if self.slots.len() <= 1 {
+            self.equalize_balance();
+            return;
+        }
+
+        let total: f32 = self
+            .slots
+            .iter()
+            .map(|slot| 10.0_f32.powf(slot.gain_db / 20.0).max(0.0))
+            .sum();
+        if total <= f32::EPSILON {
+            self.equalize_balance();
+            return;
+        }
+
+        let mut assigned = 0.0;
+        let last = self.slots.len() - 1;
+        for slot in self.slots.iter_mut().take(last) {
+            slot.balance_percent = 10.0_f32.powf(slot.gain_db / 20.0).max(0.0) / total * 100.0;
+            assigned += slot.balance_percent;
+        }
+        self.slots[last].balance_percent = 100.0 - assigned;
+        self.sync_balance_gains();
+    }
+
+    fn sync_balance_gains(&mut self) {
+        for slot in &mut self.slots {
+            slot.gain_db = balance_percent_to_gain_db(slot.balance_percent);
+        }
+    }
+}
+
+fn balance_percent_to_gain_db(percent: f32) -> f32 {
+    let linear_gain =
+        (percent.clamp(0.0, 100.0) / 100.0).max(10.0_f32.powf(BALANCE_SILENCE_DB / 20.0));
+    20.0 * linear_gain.log10()
 }
 
 fn dummy_slot(
@@ -290,6 +410,7 @@ fn dummy_slot(
         color_index: (id as usize - 1) % IR_COLORS.len(),
         enabled,
         gain_db,
+        balance_percent: 0.0,
         delay_samples,
         pan,
         polarity_inverted: false,
@@ -534,5 +655,52 @@ impl ExportDemo {
         if self.exporting_until.is_some() {
             ui.ctx().request_repaint();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn balance_mode_normalizes_gains_and_redistributes_edits() {
+        let mut demo = IrRackDemo::default();
+
+        demo.set_balance_mode(true);
+        assert!(demo.balance_mode);
+        assert!((balance_total(&demo) - 100.0).abs() < 0.000_1);
+
+        demo.set_balance_percent(1, 50.0);
+        assert!((demo.slots[0].balance_percent - 50.0).abs() < f32::EPSILON);
+        assert!((balance_total(&demo) - 100.0).abs() < 0.000_1);
+        for slot in &demo.slots {
+            assert!(
+                (slot.gain_db - balance_percent_to_gain_db(slot.balance_percent)).abs() < 0.000_1
+            );
+        }
+    }
+
+    #[test]
+    fn balance_mode_equalizes_after_adding_and_removing_slots() {
+        let mut demo = IrRackDemo::default();
+        demo.set_balance_mode(true);
+
+        demo.apply(IrRackAction::Remove { id: 1 });
+        assert!(
+            demo.slots
+                .iter()
+                .all(|slot| (slot.balance_percent - 20.0).abs() < 0.000_1)
+        );
+
+        demo.apply(IrRackAction::AddIr);
+        assert_eq!(demo.slots.len(), 6);
+        assert!((balance_total(&demo) - 100.0).abs() < 0.000_1);
+        assert!(demo.slots.iter().all(|slot| {
+            (slot.balance_percent - 100.0 / demo.slots.len() as f32).abs() < 0.000_1
+        }));
+    }
+
+    fn balance_total(demo: &IrRackDemo) -> f32 {
+        demo.slots.iter().map(|slot| slot.balance_percent).sum()
     }
 }

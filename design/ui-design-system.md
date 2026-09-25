@@ -4,7 +4,7 @@
 
 This document is the normative visual contract for IR Mixer. The approved
 [`main-screen-v4.png`](mockups/main-screen-v4.png) mockup is the visual source of truth.
-[`UI_DESIGN.md`](UI_DESIGN.md) defines product layout and behavior; this document
+[`ui-design.md`](ui-design.md) defines product layout and behavior; this document
 defines how the interface is rendered.
 
 Use the token names below in Rust. Do not scatter unnamed colors, spacing values,

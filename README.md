@@ -8,7 +8,7 @@ loading, preview playback, analysis, presets, and mixed-IR export are
 implemented. The reusable mock backend remains available for UI development.
 VST3 and CLAP adapters are the next product milestone.
 
-![Approved IR Mixer Pro interface](docs/mockups/main-screen-v4.png)
+![Approved IR Mixer Pro interface](design/mockups/main-screen-v4.png)
 
 ## Run the native application
 
@@ -76,7 +76,7 @@ does not open a console window.
 
 The script runs the release checks, builds the optimized executable, and creates
 a versioned ZIP plus a SHA-256 checksum under `dist\`. See the
-[build and release guide](docs/BUILD_AND_RELEASE.md) for prerequisites, manual
+[build and release guide](docs/build-and-release.md) for prerequisites, manual
 commands, signing, smoke testing, and current plugin-format status.
 
 Visual regression baselines live in `crates/ir-ui/tests/snapshots`. Update them
@@ -96,16 +96,17 @@ crates/ir-dsp/      Partitioned convolution and real-time mix engine
 crates/ir-native/   CPAL host, workers, persistence, and native backend
 crates/ir-ui/       Reusable theme, widgets, cards, and complete application page
 tools/ui-gallery/   Native Storybook-style component gallery
-docs/               Product, architecture, and UI specifications
+docs/               Product, architecture, and release documentation
+design/             UI specifications, mockups, and product artwork
 src/main.rs         Native standalone application launcher
 ```
 
 Start with these documents:
 
-- [Product specification](docs/PRODUCT_SPEC.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [UI design](docs/UI_DESIGN.md)
-- [UI design system](docs/UI_DESIGN_SYSTEM.md)
+- [Product specification](docs/product-spec.md)
+- [Architecture](docs/architecture.md)
+- [UI design](design/ui-design.md)
+- [UI design system](design/ui-design-system.md)
 
 ## Planned product targets
 

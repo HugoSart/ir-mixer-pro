@@ -204,6 +204,6 @@ First milestone:
 Before making architectural changes:
 
 1. Read this file.
-2. Read all files under `docs/`.
+2. Read all Markdown files under `docs/` and `design/`.
 3. Preserve the core product decisions unless the requested task explicitly changes them.
 4. If implementation details differ from the documented architecture, update the docs in the same change.
