@@ -25,6 +25,7 @@ The same project model and audio engine target three first-release formats:
 - Enable up to 16 IRs simultaneously in the real-time engine.
 - Adjust gain or percentage balance, positive delay, polarity, pan,
   normalization, mute, solo, enabled state, and order per IR.
+- Shape each IR with a non-destructive parametric equalizer.
 - Replace or remove an IR without disturbing unrelated slots.
 - Preserve each IR's identity color when slots move or other slots are removed.
 
@@ -83,10 +84,28 @@ Every slot stores:
 - Delay in samples
 - Polarity and per-IR normalization
 - Stereo pan
+- Per-IR equalizer bypass, output gain, and ordered dynamic band list
 - Load/error state and display waveform
 
 The project model may contain more than 16 slots. The 16-IR limit applies only
 to simultaneously enabled real-time convolvers.
+
+### Per-IR equalizer
+
+Every IR supports a non-destructive parametric equalizer with an ordered dynamic
+band list. Bands support bell, low-shelf, high-shelf, notch, high-pass, and
+low-pass shapes. Users can add, remove, duplicate, reorder, enable/bypass, and
+reset bands; bypass the complete EQ; adjust explicit EQ output gain; and copy an
+EQ chain between IRs.
+
+The equalizer opens in a dedicated dialog with an interactive response graph,
+band controls, original/EQ comparison, and peak/headroom feedback. A new or
+migrated IR has an empty transparent EQ chain and unity EQ output gain. EQ never
+normalizes or compensates gain implicitly.
+
+Equalizer state must affect preview, live monitoring, analysis, presets, plugin
+session state, and mixed-IR export consistently. Detailed behavior is specified
+in [equalizer.md](equalizer.md).
 
 ### Balance Mode
 
@@ -128,13 +147,14 @@ The application provides:
   count, and engine status
 
 Mix-affecting changes schedule background analysis. Existing graphs remain
-visible until the newest calculation completes.
+visible until the newest calculation completes. Per-IR EQ and EQ output gain are
+included in frequency, phase, and combined impulse analysis.
 
 ## Presets and state
 
 - Presets use a versioned JSON schema.
-- Presets retain IR references, slot order and controls, Balance Mode, output
-  controls, analysis selections, and export choices.
+- Presets retain IR references, slot order and controls, per-IR equalizer state,
+  Balance Mode, output controls, analysis selections, and export choices.
 - Device and channel selections are machine-local and are not portable preset
   state.
 - Missing IR files remain visible as errored slots so mixer settings are not

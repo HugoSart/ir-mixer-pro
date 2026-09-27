@@ -3,7 +3,8 @@
 This document describes the current implementation and the boundaries that the
 planned VST3 and CLAP adapters must preserve. Product requirements belong in
 [product-spec.md](product-spec.md); detailed sample-rate and export behavior
-belongs in [audio-processing.md](audio-processing.md).
+belongs in [audio-processing.md](audio-processing.md). The next planned
+per-IR equalizer milestone is specified in [equalizer.md](equalizer.md).
 
 ## System shape
 
@@ -161,6 +162,34 @@ Ordinary mix changes do not rebuild all convolvers:
 Balance Mode is implemented in the application model. Percentages are kept at
 100% and synchronized to dB gains before parameters reach the engine.
 
+## Planned per-IR equalizer
+
+The equalizer is a first-release requirement and the next implementation
+milestone, but it is not part of the current processing path described above.
+Each IR slot will own a non-destructive ordered dynamic band list, complete-EQ
+bypass, and EQ output gain. The planned monitoring path is:
+
+```text
+source
+   → per-IR convolver
+   → ordered EQ-band cascade
+   → EQ output gain
+   → delay / polarity / rack gain / pan
+   → sum → output gain → bypass → limiter
+```
+
+Filter coefficients and replacement chains will be prepared and validated away
+from the callback, then transferred through the existing real-time-safe control
+boundary. Parameter and topology changes must be smoothed or crossfaded without
+rebuilding convolution state. Stereo channels share controls but retain
+independent filter history.
+
+The dedicated equalizer dialog will remain a controlled UI surface driven by
+`AppSnapshot` and typed `AppCommand` values. Its deterministic component-gallery
+state will exercise dynamic-band operations without performing DSP or file I/O.
+See [equalizer.md](equalizer.md) for the full product, UI, state, and processing
+contract.
+
 ## Analysis
 
 Analysis never runs on the audio callback. The native backend keeps one analysis
@@ -184,6 +213,7 @@ runs entirely on the background worker:
 active native-rate sources
     → resample each source directly to export rate
     → optional per-IR normalization
+    → planned per-IR EQ cascade and EQ output gain
     → delay and polarity
     → gain and constant-power pan
     → sum and output gain
@@ -220,6 +250,11 @@ mix settings survive.
 
 Device, channel, monitoring, runtime loading state, waveforms, export destination,
 and dirty state are transient and excluded from portable preset serialization.
+
+Implementing the equalizer will require a new preset schema version containing
+per-IR EQ bypass, output gain, and ordered stable-ID band state. Existing presets
+must migrate to an empty transparent EQ chain; missing-file slots must retain
+their EQ state.
 
 ## Planned plugin adapters
 

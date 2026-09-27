@@ -14,6 +14,24 @@ visual regression coverage.
 Continue hardening this foundation as plugin work exposes host-specific block
 sizes, rates, lifecycle transitions, and state restoration cases.
 
+## Per-IR equalizer
+
+The equalizer is the next implementation milestone and a first-release
+requirement. Its product and processing contract is defined in
+[equalizer.md](equalizer.md).
+
+- Add a dedicated equalizer dialog for the selected IR.
+- Support an ordered dynamic band list with bell, shelf, notch, high-pass, and
+  low-pass shapes.
+- Add complete-EQ and per-band bypass, EQ output gain, response visualization,
+  headroom feedback, reset, duplication, reorder, and copy/paste workflows.
+- Persist EQ state in presets and future plugin sessions with schema migration.
+- Apply equivalent EQ behavior to monitoring, analysis, and mixed-IR export.
+- Keep coefficient preparation and topology changes outside the audio callback,
+  with click-free real-time transitions and allocation-free warmed-up processing.
+- Add deterministic component-gallery coverage, interaction tests, DSP tests,
+  state round trips, analysis/export parity tests, and reviewed UI snapshots.
+
 ## VST3 and CLAP adapters
 
 These adapters are required to complete the multi-format first release:
