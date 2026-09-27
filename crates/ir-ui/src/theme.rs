@@ -55,6 +55,8 @@ pub struct Metrics {
     pub icon_small: f32,
     pub icon_default: f32,
     pub icon_large: f32,
+    pub sliding_pane_width: f32,
+    pub sliding_pane_animation_time: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -105,6 +107,8 @@ impl Default for DesignSystem {
                 icon_small: 14.0,
                 icon_default: 16.0,
                 icon_large: 20.0,
+                sliding_pane_width: 460.0,
+                sliding_pane_animation_time: 0.24,
             },
         }
     }

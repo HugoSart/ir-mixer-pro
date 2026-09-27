@@ -1,6 +1,7 @@
 mod cards;
 use egui::{Color32, RichText, ScrollArea, Stroke, Vec2, vec2};
 use egui_lucide::Lucide;
+use ir_ui::components::SlidingPane;
 use ir_ui::widgets::{
     ActionButton, AudioKnob, ButtonKind, ChannelToggle, Checkbox, DbValueEditor, DropdownSelector,
     GraphFrame, IconButton, LevelMeter, ListSelector, ListSelectorItem, MiniFader, PanKnob,
@@ -38,6 +39,7 @@ enum GalleryPage {
     Selectors,
     Values,
     AudioVisuals,
+    SlidingPane,
 }
 
 struct GalleryApp {
@@ -68,6 +70,12 @@ struct GalleryApp {
     demo_gains: [f32; 4],
     waveforms: Vec<Vec<f32>>,
     curves: Vec<Vec<f32>>,
+    pane_open: bool,
+    pane_display_mode: usize,
+    pane_option_enabled: bool,
+    pane_amount: i32,
+    pane_setting_a: usize,
+    pane_setting_b: usize,
 }
 
 impl Default for GalleryApp {
@@ -104,6 +112,12 @@ impl Default for GalleryApp {
             curves: (0..4)
                 .map(|index| deterministic_curve(index as f32 * 0.9, 180))
                 .collect(),
+            pane_open: false,
+            pane_display_mode: 1,
+            pane_option_enabled: true,
+            pane_amount: 50,
+            pane_setting_a: 0,
+            pane_setting_b: 1,
         }
     }
 }
@@ -131,7 +145,7 @@ impl App for GalleryApp {
             )
             .show(ui, |ui| self.navigation(ui));
 
-        egui::CentralPanel::default()
+        let central = egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
                     .fill(ds.colors.surface_canvas)
@@ -165,8 +179,32 @@ impl App for GalleryApp {
                         GalleryPage::Selectors => self.selectors(ui),
                         GalleryPage::Values => self.values(ui),
                         GalleryPage::AudioVisuals => self.audio_visuals(ui),
+                        GalleryPage::SlidingPane => self.sliding_pane_page(ui),
                     });
             });
+
+        let pane_open = &mut self.pane_open;
+        let pane_display_mode = &mut self.pane_display_mode;
+        let pane_option_enabled = &mut self.pane_option_enabled;
+        let pane_amount = &mut self.pane_amount;
+        let pane_setting_a = &mut self.pane_setting_a;
+        let pane_setting_b = &mut self.pane_setting_b;
+        SlidingPane::new(
+            "gallery_sliding_pane",
+            "Sliding Pane",
+            Lucide::SlidersHorizontal,
+            central.response.rect,
+        )
+        .show(ui.ctx(), pane_open, |ui| {
+            Self::sliding_pane_content(
+                ui,
+                pane_display_mode,
+                pane_option_enabled,
+                pane_amount,
+                pane_setting_a,
+                pane_setting_b,
+            );
+        });
     }
 }
 
@@ -204,6 +242,11 @@ impl GalleryApp {
                 Lucide::AudioLines,
                 "Audio visuals",
             ),
+            (
+                GalleryPage::SlidingPane,
+                Lucide::PanelRightOpen,
+                "Sliding pane",
+            ),
         ] {
             if ui
                 .add(
@@ -214,6 +257,9 @@ impl GalleryApp {
                 )
                 .clicked()
             {
+                if self.page != page {
+                    self.pane_open = false;
+                }
                 self.page = page;
             }
         }
@@ -692,6 +738,119 @@ impl GalleryApp {
                     ds.colors.status_danger,
                 );
             });
+        });
+    }
+
+    fn sliding_pane_page(&mut self, ui: &mut egui::Ui) {
+        let ds = DesignSystem::default();
+        Self::page_title(
+            ui,
+            "Sliding pane",
+            "A controlled overlay for focused tools that keeps application chrome visible.",
+        );
+        ds.panel_frame().show(ui, |ui| {
+            section_header(ui, 1, "Right-edge pane");
+            ui.add_space(12.0);
+            ui.label(
+                RichText::new(
+                    "Open the pane, interact with its arbitrary content, then dismiss it with the close button, Escape, or the dimmed background.",
+                )
+                .font(TextRole::Body.font_id())
+                .color(ds.colors.text_secondary),
+            );
+            ui.add_space(12.0);
+            if ui
+                .add(
+                    ActionButton::new("Open sliding pane")
+                        .kind(ButtonKind::Primary)
+                        .icon(Lucide::PanelRightOpen),
+                )
+                .clicked()
+            {
+                self.pane_open = true;
+            }
+        });
+    }
+
+    fn sliding_pane_content(
+        ui: &mut egui::Ui,
+        display_mode: &mut usize,
+        option_enabled: &mut bool,
+        amount: &mut i32,
+        setting_a: &mut usize,
+        setting_b: &mut usize,
+    ) {
+        let ds = DesignSystem::default();
+        ui.label(
+            RichText::new(
+                "Use this pane to show focused tools and settings without leaving the current workspace.",
+            )
+            .font(TextRole::Body.font_id())
+            .color(ds.colors.text_secondary),
+        );
+        ui.add_space(16.0);
+
+        ds.inset_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(
+                RichText::new("Example Content")
+                    .font(TextRole::SectionTitle.font_id())
+                    .color(ds.colors.text_primary),
+            );
+            ui.add_space(8.0);
+            ui.add(
+                DropdownSelector::new(
+                    "sliding_pane_display_mode",
+                    &["Compact", "Detailed", "Expanded"],
+                    display_mode,
+                )
+                .label("Display mode", SelectorLabelPosition::Top)
+                .width(ui.available_width()),
+            );
+            ui.add_space(8.0);
+            ui.add(Checkbox::new(option_enabled, "Enable option"));
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("Amount")
+                    .font(TextRole::ControlLabel.font_id())
+                    .color(ds.colors.text_primary),
+            );
+            ui.add(
+                egui::DragValue::new(amount)
+                    .range(0..=100)
+                    .suffix("%")
+                    .speed(1.0),
+            );
+        });
+
+        ui.add_space(16.0);
+        ds.inset_frame().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(
+                RichText::new("Additional Settings")
+                    .font(TextRole::SectionTitle.font_id())
+                    .color(ds.colors.text_primary),
+            );
+            ui.add_space(8.0);
+            ui.add(
+                DropdownSelector::new(
+                    "sliding_pane_setting_a",
+                    &["Option 1", "Option 2", "Option 3"],
+                    setting_a,
+                )
+                .label("Setting A", SelectorLabelPosition::Left)
+                .width(180.0),
+            );
+            ui.add_space(8.0);
+            ui.add(
+                DropdownSelector::new(
+                    "sliding_pane_setting_b",
+                    &["Option 1", "Option 2", "Option 3"],
+                    setting_b,
+                )
+                .label("Setting B", SelectorLabelPosition::Left)
+                .width(180.0),
+            );
         });
     }
 }

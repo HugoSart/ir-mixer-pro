@@ -127,6 +127,8 @@ Use a four-point grid: `4`, `8`, `12`, `16`, `24`, and `32`.
 | `radius.control` | 4 | Inputs and buttons |
 | `radius.card` | 8 | Panels and cards |
 | `radius.dialog` | 10 | Dialogs and floating surfaces |
+| `sliding_pane.width` | 460 | Default right-edge pane width |
+| `sliding_pane.animation_time` | 240 ms | Opening and closing travel time |
 
 Borders are one logical pixel. Selected controls may add a one-pixel accent border
 but must not change their external dimensions. Shadows are limited to dialogs and
@@ -195,6 +197,22 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
   their left-aligned `graph_label`-sized millisecond readout is painted below
   without participating in row alignment.
 
+### 5.2 Sliding panes
+
+- Sliding panes are controlled overlay surfaces for focused tools. Callers supply
+  an explicit body rectangle so persistent application bars remain uncovered.
+- The pane enters from the right, finishes flush with that edge, uses rounded
+  left corners and square right corners, and keeps the standard panel fill,
+  border, typography, and card-header icon treatment.
+- A translucent black scrim covers only the supplied body rectangle. Clicking
+  the scrim, pressing Escape, or activating the header's ghost close button
+  starts the same closing animation and consumes the interaction.
+- The header remains fixed while arbitrary pane content scrolls independently.
+  Pane content stays mounted during the closing animation and is released only
+  after the pane has moved fully outside its bounds.
+- Opening and closing use a 240 ms cubic-out curve. The scrim opacity follows
+  the same progress so it never remains after the pane is destroyed.
+
 ## 6. Audio Visuals
 
 - Waveforms use their IR identity color over `surface.inset`, with a subtle center
@@ -224,6 +242,7 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
 | `status.*` | `DesignSystem::colors.status_*` |
 | IR palette index | `IrColorId` and `IR_COLORS` |
 | Spacing and sizes | `DesignSystem::metrics` |
+| Sliding-pane geometry and timing | `DesignSystem::metrics.sliding_pane_*` |
 | Typography roles | `TextRole` |
 
 The component gallery is the isolated reference for these tokens, while the root
@@ -251,6 +270,12 @@ selection come from the caller. The Cards gallery applies these actions to
 independent dummy states. In particular,
 choosing an output device, choosing an export destination, and exporting are
 intentions only; the components never access devices or files.
+
+`SlidingPane` accepts arbitrary content and an explicit overlay rectangle. Its
+gallery page demonstrates the open button, body-only scrim, internal controls,
+independent scrolling, and every supported dismissal path. Call it on every
+frame, including while closed, so the controlled opening animation is seeded
+from the closed state.
 
 Run the native Storybook-style gallery with:
 
