@@ -1,139 +1,53 @@
-# IR Mixer — Architecture
+# IR Mixer Pro — Architecture
 
-## 1. Architectural Goals
+This document describes the current implementation and the boundaries that the
+planned VST3 and CLAP adapters must preserve. Product requirements belong in
+[product-spec.md](product-spec.md); detailed sample-rate and export behavior
+belongs in [audio-processing.md](audio-processing.md).
 
-The implementation should support three frontends from one product model:
-
-```text
-                  Shared Rust Core
-                        │
-        ┌───────────────┼───────────────┐
-        │               │               │
-   Standalone          VST3            CLAP
-```
-
-The UI and DSP engine should be reusable across plugin and standalone builds.
-
-Host-specific concerns should remain at the edges.
-
-## 2. Proposed Workspace
+## System shape
 
 ```text
-ir-mixer/
-├── Cargo.toml
-├── AGENTS.md
-├── docs/
-│   ├── product-spec.md
-│   ├── architecture.md
-│   └── build-and-release.md
-│
-├── design/
-│   ├── ui-design.md
-│   ├── ui-design-system.md
-│   ├── mockups/
-│   └── logos/
-│
-├── crates/
-│   ├── ir-core/
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── ir.rs
-│   │   │   ├── mix.rs
-│   │   │   ├── transform.rs
-│   │   │   ├── export.rs
-│   │   │   └── analysis.rs
-│   │   └── Cargo.toml
-│   │
-│   ├── ir-dsp/
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── engine.rs
-│   │   │   ├── convolver.rs
-│   │   │   ├── realtime.rs
-│   │   │   └── meters.rs
-│   │   └── Cargo.toml
-│   │
-│   ├── ir-app/
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── state.rs
-│   │   │   ├── commands.rs
-│   │   │   ├── backend.rs
-│   │   │   ├── mock_backend.rs
-│   │   │   └── preset.rs
-│   │   └── Cargo.toml
-│   │
-│   ├── ir-ui/
-│   │   ├── src/
-│   │   │   ├── lib.rs
-│   │   │   ├── theme.rs
-│   │   │   ├── app.rs
-│   │   │   ├── components/
-│   │   │   ├── graphs/
-│   │   │   └── widgets/
-│   │   └── Cargo.toml
-│   │
-│   └── ir-plugin/
-│       ├── src/
-│       │   ├── lib.rs
-│       │   ├── plugin.rs
-│       │   ├── params.rs
-│       │   └── editor.rs
-│       └── Cargo.toml
-│
-└── xtask/
-    └── ...
+                         AppSnapshot / AppCommand
+                                  │
+                         Shared egui AppPage
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+          NativeAudioBackend            future host adapter
+                    │                    (VST3 or CLAP)
+          CPAL + workers + dialogs              │
+                    └─────────────┬─────────────┘
+                                  │
+                           shared DSP/core
 ```
 
-This layout is a starting point, not a rigid requirement. Prefer fewer crates if splitting them produces unnecessary friction.
+The UI renders immutable display state and returns typed commands. It does not
+open files, enumerate devices, own audio streams, or perform DSP. Backends own
+those side effects and publish the next snapshot.
 
-## 3. Core Data Model
+## Workspace
 
-A pure application model should exist independently of the plugin framework.
+| Location | Responsibility |
+| --- | --- |
+| `src/main.rs` | Windows standalone window and application loop |
+| `crates/ir-app` | Serializable state, commands, backend trait, events, preset migrations, and mock backend |
+| `crates/ir-core` | Planar floating-point buffers, WAV I/O, resampling, analysis, and offline mix rendering |
+| `crates/ir-dsp` | Uniform partitioned FFT convolution and the allocation-free real-time mix engine |
+| `crates/ir-native` | CPAL devices and streams, background work, dialogs, presets, and `NativeAudioBackend` |
+| `crates/ir-ui` | Design system, reusable widgets/cards, responsive `AppPage`, native window integration, and visual tests |
+| `tools/ui-gallery` | Interactive isolated widget and card reference |
+| `tools/build-release.ps1` | Current Windows standalone validation and ZIP packaging |
 
-Example conceptual model:
+There is no plugin crate or host adapter yet. Those are first-release roadmap
+work, not hidden behind a Cargo feature in the current executable.
 
-```rust
-pub struct ProjectState {
-    pub ir_slots: Vec<IrSlotState>,
-    pub selected_ir: Option<IrId>,
-    pub output_gain_db: f32,
-    pub source: SourceState,
-    pub transport: TransportState,
-}
+## Application boundary
 
-pub struct IrSlotState {
-    pub id: IrId,
-    pub name: String,
-    pub path: Option<PathBuf>,
-    pub gain_db: f32,
-    pub delay_samples: i32,
-    pub polarity_inverted: bool,
-    pub muted: bool,
-    pub soloed: bool,
-    pub enabled: bool,
-    pub pan: f32,
-}
-```
-
-The DSP layer should receive compact real-time-safe representations rather than reading UI state directly.
-
-## 4. UI-to-Backend Boundary
-
-The UI uses controlled display data and typed UI actions.
-`ir_ui::components::{InputSourceCard, IrRackCard, AnalysisPreviewCard, OutputCard, ExportMixedIrCard}`
-return typed action values to their caller. Gallery adapters apply those to local
-dummy state. `ir_ui::app::AppPage` adapts `ir_app::AppSnapshot` into those
-views and translates actions into stable-ID `AppCommand` values. Cards do not
-own devices, open files, start exports, or call the backend. Shared `CardFrame`
-chrome remains independent of semantic card content.
-
-The first implementation should use a backend abstraction.
-
-Conceptually:
+`ir-app` defines the stable UI-facing service boundary:
 
 ```rust
-pub trait AudioBackend {
+pub trait AudioBackend: Send {
     fn snapshot(&self) -> &AppSnapshot;
     fn dispatch(&mut self, command: AppCommand);
     fn update(&mut self, now_seconds: f64);
@@ -141,449 +55,198 @@ pub trait AudioBackend {
 }
 ```
 
-The current mock backend implements this API directly. A native backend may use
-channels internally while preserving this UI-facing contract.
+`AppSnapshot` contains project state plus transient device choices, meters,
+graphs, loading state, and status text. `AppCommand` uses stable IDs rather than
+widget indices for project mutations.
 
-Backends:
+Two implementations currently exist:
 
-```text
-AudioBackend
-├── MockAudioBackend
-└── NativeAudioBackend
-```
+- `MockAudioBackend` supplies deterministic state for UI development.
+- `NativeAudioBackend` connects the same model to files, CPAL, DSP, presets,
+  analysis, and export.
 
-### Mock backend
+The root executable selects the native backend by default and the mock backend
+when `IR_MIXER_MOCK` is set.
 
-Used during UI-first development.
+## UI composition
 
-Responsibilities:
+`ir_ui::app::AppPage` adapts `AppSnapshot` into borrowed card views and maps
+returned card actions to `AppCommand`. The reusable cards are:
 
-- Simulate IR loading
-- Simulate meters
-- Simulate spectrum data
-- Simulate waveform data
-- Simulate transport
-- Simulate device lists
-- Simulate export status
-- Produce deterministic demo data where useful
+- `InputSourceCard`
+- `IrRackCard`
+- `AnalysisPreviewCard`
+- `OutputCard`
+- `ExportMixedIrCard`
 
-### Native backend
+Cards remain controlled presentation components. Their caller owns selections,
+transport, project state, and side effects. `FrontendMode::Standalone` exposes
+device routing; `FrontendMode::Plugin` replaces those controls with host-routing
+status, but no plugin host currently instantiates that mode.
 
-Responsible for communicating with:
+## Native threading and ownership
 
-- DSP engine
-- Standalone audio devices
-- File decoding
-- Preset storage
-- Export engine
+The standalone implementation has four important execution contexts:
 
-Plugin builds may use a specialized adapter around the same application services.
+1. **UI thread** — renders snapshots, dispatches commands, and polls results.
+2. **Audio-host thread** — owns CPAL streams and runs stream callbacks because
+   CPAL stream handles are thread-affine.
+3. **Background worker** — decodes and prepares audio, renders analysis and
+   exports, and performs preset file I/O.
+4. **Dialog thread** — runs native file dialogs outside the egui callback to
+   avoid nested-window-loop re-entry.
 
-### Current UI-first milestone
+Channels between these contexts are bounded. The UI/application object holds
+Send-safe handles and owned snapshots rather than stream objects.
 
-- `ir-app` owns serializable project state, versioned preset documents,
-  application commands, transient snapshots, and `MockAudioBackend`.
-- `ir-ui` owns reusable widgets/cards and the responsive, mode-aware
-  `AppPage`.
-- The root binary hosts `AppPage` with the native backend by default and keeps
-  the mock backend available through `IR_MIXER_MOCK=1`.
-- `FrontendMode::Standalone` exposes device routing.
-  `FrontendMode::Plugin` replaces it with host-routing status.
-- VST3 and CLAP host adapters are the next implementation phase.
+## Real-time engine
 
-### Native backend implementation
-
-The UI-first boundary is now backed by three production crates:
-
-- `ir-core` owns planar floating-point audio buffers, WAV decoding/encoding,
-  deterministic offline transforms, resampling, export mixing, and cached
-  frequency/phase analysis.
-- `ir-dsp` owns the partitioned FFT convolver and the real-time mix engine.
-- `ir-native` implements `NativeAudioBackend`, background preparation/export
-  work, preset storage, and the CPAL standalone host.
-
-The root executable uses `NativeAudioBackend` by default. Setting
-`IR_MIXER_MOCK=1` keeps the deterministic mock available for UI development.
-CPAL streams stay on a dedicated audio-host thread because CPAL stream handles
-are deliberately thread-affine. The window/application object contains only
-Send-safe command handles and snapshots.
-
-## 5. DSP Architecture
-
-### High-level path
+Each enabled IR has its own `PreparedSlot` and pair of partitioned convolvers.
+The engine processes fixed blocks and then applies per-slot delay, smoothed
+gain, polarity, pan, mute/solo audibility, and summation. Output gain, bypass,
+and the optional limiter are applied after the sum.
 
 ```text
-Input
- │
- ├──► Convolver 1 ─► gain/delay/pan ─┐
- ├──► Convolver 2 ─► gain/delay/pan ─┤
- ├──► Convolver 3 ─► gain/delay/pan ─┤
- │                ...                ├──► Sum ─► Output gain ─► Output
- └──► Convolver N ─► gain/delay/pan ─┘
+source L/R
+   ├── convolver 1 ─ delay/gain/pan ─┐
+   ├── convolver 2 ─ delay/gain/pan ─┤
+   └── convolver N ─ delay/gain/pan ─┤
+                                      ├─ sum ─ output gain ─ bypass ─ limiter
+dry source ───────────────────────────┘
 ```
 
-### Convolution
+The output adapter bridges arbitrary device callback sizes to fixed DSP blocks
+using preallocated buffers. Current selectable DSP blocks are 64, 128, and 256
+frames. The real-time engine reserves capacity for 16 active IRs.
 
-Use partitioned FFT convolution rather than whole-buffer offline convolution in the live path.
+The audio callback does not allocate, deallocate, touch the filesystem, perform
+UI work, or lock a blocking mutex. Prepared objects transfer into the callback
+through bounded `rtrb` queues. Replaced objects return through a retirement queue
+and are dropped on the audio-host thread.
 
-The current engine uses uniform overlap-add partitions matching the selected
-device quantum. It accepts 64, 128, and 256 sample configurations. A nonuniform
-head/tail convolver remains a measured optimization if the 16-IR performance
-gate cannot be met.
+## IR and preview lifecycle
 
-Each loaded IR has two distinct in-memory representations. The native-rate
-decoded buffer is retained as the immutable source of truth for file metadata,
-analysis, fingerprints, export, and future engine rebuilds. A separate buffer
-is resampled directly from that original to the current engine rate and used
-only to prepare the real-time convolver. Changing the engine rate never chains
-resampling through a previously prepared buffer.
-
-The implementation should be benchmarked before choosing exact partition sizes.
-
-Potential strategy:
-
-- Small head partition for low latency.
-- Larger tail partitions for efficiency.
-
-### Parameter updates
-
-Avoid reconstructing convolvers for ordinary mixer changes.
-
-Fast controls:
-
-- Gain
-- Mute
-- Solo
-- Pan
-
-These should operate on convolver output.
-
-IR-changing controls:
-
-- Loading a new file
-- Resampling
-- Major trim changes
-
-These should be prepared off the audio thread and atomically swapped into the active engine.
-
-### Delay
-
-Two possible implementations:
-
-1. Delay each convolved output before summing.
-2. Shift the IR during preparation.
-
-For live tweaking, output delay may provide easier parameter updates.
-
-For export, delay is applied directly to the impulse data.
-
-### Polarity
-
-Can be represented as a gain multiplier of `+1` or `-1`.
-
-## 6. Real-Time Safety
-
-The audio callback must not:
-
-- Allocate
-- Deallocate
-- Lock a blocking mutex
-- Read files
-- Write files
-- Log synchronously
-- Perform UI work
-- Trigger expensive graph recomputation
-
-Recommended communication patterns:
-
-- Atomics for simple scalar parameters
-- Lock-free SPSC queues for events
-- Double buffering / atomic pointer swaps for prepared DSP state
-- Preallocated buffers
-
-All code touching the process callback should be reviewed with real-time constraints in mind.
-
-The native implementation uses bounded `rtrb` queues at the callback boundary.
-Prepared convolvers and preview buffers transfer ownership into the callback;
-replaced buffers return through a retirement ring and are dropped on the audio
-host thread. Scalar controls are applied at block boundaries and audible gain,
-pan, polarity, mute/solo, bypass, output gain, and delay transitions are ramped
-or crossfaded.
-
-## 7. File Loading Pipeline
+An IR load follows this path:
 
 ```text
-User selects IR
-      ↓
-Background file read
-      ↓
-Decode WAV
-      ↓
-Validate
-      ↓
-Resample if needed
-      ↓
-Convert to internal float format
-      ↓
-Prepare convolver partitions
-      ↓
-Atomic engine swap
+native dialog
+    → background WAV decode and validation
+    → immutable native-rate AudioBuffer
+    → direct resample to current engine rate
+    → partition preparation
+    → generation check
+    → real-time slot installation
 ```
 
-The UI should show loading / error state per slot.
+The native-rate buffer remains the source of truth for metadata, fingerprints,
+analysis/export inputs, and later engine rebuilds. The prepared engine copy is
+disposable. Output-device changes increment an engine generation; work prepared
+for an older rate cannot enter the current stream.
 
-## 8. Preview-File Pipeline
+Preview WAVs follow the same native-source/prepared-copy rule. Preview mode does
+not open an input stream. Live mode opens the selected input only while input
+monitoring is enabled.
 
-Standalone preview playback:
+## Parameter updates
+
+Ordinary mix changes do not rebuild all convolvers:
+
+- Gain, balance, mute, solo, pan, polarity, bypass, and output gain update
+  real-time parameters.
+- Delay uses preallocated delay lines.
+- File replacement, output-rate changes, and other IR-data changes are prepared
+  off-thread and swapped in.
+- Audible discontinuities are smoothed or crossfaded at block/sample level.
+
+Balance Mode is implemented in the application model. Percentages are kept at
+100% and synchronized to dB gains before parameters reach the engine.
+
+## Analysis
+
+Analysis never runs on the audio callback. The native backend keeps one analysis
+job in flight and at most one pending latest-state request. Rapid edits replace
+the pending request instead of growing the worker queue.
+
+Offline analysis uses the same active-source filtering and transforms as export,
+rendered at the monitoring engine rate without final normalization. Results
+replace frequency, phase, and combined-waveform snapshots only after completion.
+The previous graph stays visible in the meantime.
+
+The real-time spectrum is derived from recent output data sent through a bounded
+channel. UI refresh rate is independent of the audio callback rate.
+
+## Export
+
+Export takes a snapshot of native-rate source buffers and slot parameters, then
+runs entirely on the background worker:
 
 ```text
-WAV decoder
-    ↓
-resampler if required
-    ↓
-transport / loop
-    ↓
-shared IR DSP engine
-    ↓
-selected audio output
+active native-rate sources
+    → resample each source directly to export rate
+    → optional per-IR normalization
+    → delay and polarity
+    → gain and constant-power pan
+    → sum and output gain
+    → optional trim/pad
+    → mono downmix or stereo output
+    → optional -1 dBFS final normalization
+    → WAV encoding
 ```
 
-The preview transport should not be implemented inside the core convolution engine.
+Mono conversion is `0.5 × (left + right)`. Integer PCM encoding uses
+deterministic triangular dither and rejects samples above full scale when final
+normalization is disabled. Float32 retains headroom. Monitoring bypass and the
+safety limiter are not exported.
 
-## 9. Live Input Pipeline
+## Preset storage and migration
 
-Standalone:
+Standalone presets are JSON files under:
 
 ```text
-Selected device input
-        ↓
-channel mapping
-        ↓
-shared IR DSP engine
-        ↓
-selected output channels
+%APPDATA%\IR Mixer Pro\Presets
 ```
 
-Device ownership belongs to the standalone host layer.
+The current preset schema is version 3:
 
-Standalone channel selectors are derived from each selected device's current
-CPAL topology rather than a fixed channel count. Changing devices preserves a
-channel only when it remains valid, otherwise it selects the first available
-channel. Stream creation defensively clamps stale selections, and a one-channel
-output receives a mono downmix instead of requiring a stereo pair.
-The initial standalone selection follows the operating system's default input
-and output devices. The output adapter bridges arbitrary driver callback sizes
-to fixed DSP blocks using preallocated buffers, since virtual devices may not
-honor the requested callback quantum exactly.
+- Version 1 stored basic project and path state.
+- Version 2 added `IrFileReference` with original path, optional preset-relative
+  path, file size, and decoded-audio fingerprint.
+- Version 3 added project Balance Mode and per-slot balance percentages.
 
-The selected output endpoint's Windows shared-mode default format is the master
-clock for standalone monitoring. Device selection updates the engine rate and
-rebuilds preview/IR real-time buffers directly from their preserved native-rate
-sources. Preparation jobs carry an engine generation so results for an older
-device or rate cannot enter the current stream. Preview mode opens no input
-stream. Live mode currently requires the selected input's Windows default rate
-to match the output rate and reports a configuration error when they differ.
-Export sample-rate selection remains independent of this monitoring clock.
+Versions 1 and 2 migrate in memory. Unsupported future versions fail explicitly.
+Loading first tries an existing stored path, then a preset-relative reference,
+then the original path. An unresolved reference remains an errored slot so its
+mix settings survive.
 
-## 10. Plugin Pipeline
+Device, channel, monitoring, runtime loading state, waveforms, export destination,
+and dirty state are transient and excluded from portable preset serialization.
 
-```text
-DAW audio buffer
-      ↓
-Plugin process callback
-      ↓
-Shared IR DSP engine
-      ↓
-DAW output buffer
-```
+## Planned plugin adapters
 
-Host sample rate and block size are supplied through nice-plug lifecycle callbacks.
+VST3 and CLAP adapters must:
 
-Plugin state should serialize project parameters and IR references.
+- Translate host lifecycle, sample rate, and block-size changes into shared
+  engine preparation.
+- Feed host buffers into the shared DSP engine without using CPAL.
+- Instantiate `AppPage` in plugin mode and omit standalone routing controls.
+- Serialize compatible project/preset state into host sessions.
+- Keep file dialogs, analysis, and export off the host audio callback.
+- Remain thin enough that standalone and plugin processing cannot diverge.
 
-## 11. Analysis Architecture
+Plugin crate layout, parameter exposure, and bundle tooling will be chosen when
+that roadmap milestone begins.
 
-Do not run FFT visualization work directly in the audio callback.
+## Testing
 
-### Real-time spectrum
+- `ir-app` tests balance behavior and preset schema migration.
+- `ir-core` tests resampling, analysis, export order, channel conversion, WAV
+  encodings, and clipping behavior.
+- `ir-dsp` compares partitioned convolution with direct convolution and asserts
+  that warmed-up processing performs no heap operations.
+- `ir-native` tests loading, export, device topology, rate changes, worker
+  generations, preview transport, and analysis scheduling.
+- `ir-ui` uses interaction and image-snapshot tests across cards, layouts,
+  widgets, and DPI scales.
+- `ir-ui-gallery` tests its independent dummy card state.
 
-- Copy or downsample recent audio into a ring buffer.
-- Analysis worker performs FFT.
-- UI consumes the latest spectrum snapshot.
-
-### IR frequency response
-
-This can be computed when an IR or IR parameter affecting the response changes.
-
-No need to recompute every UI frame.
-
-The native backend keeps at most one analysis job in flight and one pending
-latest-state request. Continuous gain, delay, pan, polarity, normalization,
-enable, mute, solo, and output-gain edits replace the pending request instead of
-building an unbounded worker queue. Completed snapshots replace frequency,
-phase, and combined-waveform data atomically while the previous graphs remain
-visible. Analysis rendering remains entirely off the audio thread.
-
-### Waveform
-
-Generate display-friendly downsampled waveform data after loading the IR.
-
-### Phase
-
-Compute cached phase data for selected / combined IRs.
-
-## 12. Export Architecture
-
-Export does not need to run under real-time constraints.
-
-Conceptual flow:
-
-```text
-Take project snapshot
-      ↓
-Load / access source IR buffers
-      ↓
-Apply delay
-      ↓
-Apply polarity
-      ↓
-Apply gain
-      ↓
-Pad lengths
-      ↓
-Sum
-      ↓
-Optional normalization
-      ↓
-Resample to requested rate
-      ↓
-Encode WAV
-```
-
-Use a background task and surface progress / errors to the UI.
-
-Export order is: resample, per-IR normalization, delay, polarity, gain and pan,
-sum, output gain, trim/pad, channel conversion, optional final normalization,
-then encoding. Mono is `0.5 * (left + right)`. Monitoring bypass and the
-lookahead limiter are not rendered into the exported IR. Integer PCM export is
-rejected if it would clip while normalization is disabled; 32-bit float export
-retains headroom.
-
-Export resamples every active native-rate source directly to the requested
-export rate. The standalone monitoring rate does not constrain export quality;
-for example, a native 96 kHz IR remains at 96 kHz in a 96 kHz export even when
-the real-time engine is monitoring at 48 kHz.
-
-## 13. Preset / State Format
-
-Use a versioned serializable schema.
-
-Schema version 2 adds an IR file reference containing the original path,
-optional preset-relative path, size, and decoded-audio fingerprint. Schema
-version 3 adds project-level Balance Mode and per-IR balance percentages.
-Versions 1 and 2 migrate in memory before use. Missing files remain as errored
-slots so their mixer settings can be retained and relinked.
-
-Example:
-
-```json
-{
-  "schema_version": 1,
-  "name": "JCM800 Live",
-  "irs": [
-    {
-      "path": "York/MRSH/Mix01.wav",
-      "gain_db": -1.5,
-      "delay_samples": 0,
-      "polarity_inverted": false,
-      "mute": false,
-      "solo": false,
-      "pan": 0.0
-    },
-    {
-      "path": "York/MRSH/Room.wav",
-      "gain_db": -18.0,
-      "delay_samples": 7,
-      "polarity_inverted": false,
-      "mute": false,
-      "solo": false,
-      "pan": 0.0
-    }
-  ],
-  "output_gain_db": -2.0
-}
-```
-
-Do not rely only on absolute paths long term. Future versions may add search roots, hashes, or embedded references to relocate missing files.
-
-## 14. Threading Model
-
-Potential threads / execution contexts:
-
-- Audio thread
-- UI thread
-- File / preparation worker
-- Analysis worker
-- Export worker
-- Native file-dialog thread
-
-Do not create background threads casually. Prefer a controlled worker pool or clearly owned workers.
-
-Native file dialogs run on their own thread. A synchronous Windows dialog can
-run a nested native message loop; opening one from the egui/baseview callback
-can re-enter the window handler while application state is borrowed. Dialog
-requests and selected paths therefore cross bounded channels, and only one
-dialog may be active at a time.
-
-## 15. Testing
-
-### Unit tests
-
-Test:
-
-- dB conversion
-- gain mixing
-- polarity
-- delay application
-- solo / mute logic
-- export summation
-- preset migrations
-
-### Golden tests
-
-For deterministic DSP transforms, compare generated output against known-good vectors.
-
-### Integration tests
-
-Test:
-
-- Load multiple IRs
-- Save / reload preset
-- Missing file behavior
-- Export mixed WAV
-- Plugin state round trip
-
-### Benchmarks
-
-Benchmark:
-
-- Number of active IRs
-- IR lengths
-- 44.1 / 48 / 96 kHz
-- Buffer sizes 64 / 128 / 256
-- CPU cost
-- Convolver rebuild time
-
-## 16. Build and Packaging
-
-Use Cargo workspace tooling.
-
-Consider an `xtask` crate for:
-
-- Building plugin bundles
-- Copying VST3 artifacts
-- Packaging standalone binaries
-- Running validation
-- Creating release archives
-
-Keep release build steps documented and reproducible.
+See [development.md](development.md) for commands and snapshot workflow.

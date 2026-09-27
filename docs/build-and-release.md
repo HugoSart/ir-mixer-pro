@@ -1,34 +1,55 @@
-# Building and Shipping IR Mixer Pro
+# Building and Releasing IR Mixer Pro
 
-## Supported MVP artifact
+## Artifact scope
 
-The current production artifact is the Windows x64 standalone application:
+The product's first-release artifact set is:
 
-```text
-IR Mixer Pro.exe
-```
+- Windows x64 standalone application
+- VST3 plugin bundle
+- CLAP plugin bundle
 
-VST3 and CLAP are product targets, but host adapters and plugin bundles are not
-implemented in this milestone. Do not label the present build as containing
-VST3 or CLAP plugins.
+The repository currently implements and packages only the standalone executable.
+The existing ZIP is suitable for internal standalone testing, but it is not the
+complete multi-format product release. Plugin adapters and bundle packaging are
+tracked in the [roadmap](roadmap.md).
 
 ## Prerequisites
 
-Install on a 64-bit Windows machine:
+Install on 64-bit Windows:
 
-1. The current stable Rust MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`).
-2. Visual Studio Build Tools with **Desktop development with C++** and a recent
-   Windows SDK. Rust uses the MSVC linker from this installation.
-3. Git, for obtaining a clean release revision.
-
-Confirm the toolchain:
+1. The current stable Rust MSVC toolchain.
+2. Visual Studio Build Tools with **Desktop development with C++**.
+3. A current Windows SDK, including `rc.exe` and signing tools when signing.
+4. Git for building from a clean, identifiable revision.
 
 ```powershell
+rustup default stable-x86_64-pc-windows-msvc
 rustc -Vv
 cargo -V
 ```
 
-## Automated release package
+The root `build.rs` generates a multi-size `.ico`, compiles it as a Windows
+resource, and links it into the standalone executable. Set `RC` to an exact
+resource-compiler path only when Windows SDK discovery is insufficient.
+
+## Required validation gate
+
+Every candidate revision must pass:
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --release --locked -p ir-mixer-pro
+```
+
+Do not redefine the documented gate to hide failures. Known cleanup preventing
+a fully green gate is listed in [roadmap.md](roadmap.md#release-hardening).
+
+Plugin adapters must eventually add bundle builds, host validation, and state
+round-trip tests to this gate.
+
+## Current standalone package
 
 From the repository root:
 
@@ -36,24 +57,24 @@ From the repository root:
 .\tools\build-release.ps1
 ```
 
-This performs:
+Unless `-SkipChecks` is supplied, the script runs formatting, strict Clippy, and
+the full workspace test suite. It then:
 
-1. `cargo fmt --all -- --check`
-2. `cargo clippy --workspace --all-targets -- -D warnings`
-3. `cargo test --workspace`
-4. `cargo build --release --locked -p ir-mixer-pro`
-5. Packaging of the executable, README, license when present, and SHA-256 file
-   into a versioned ZIP under `dist\`.
+1. Builds `ir-mixer-pro` in release mode with the lockfile.
+2. Reads the package version from Cargo metadata.
+3. Copies the executable as `IR Mixer Pro.exe` into a staging directory.
+4. Adds `README.md` and `LICENSE` when a license file exists.
+5. Creates a versioned Windows x64 ZIP under `dist\`.
+6. Writes a lowercase SHA-256 checksum beside the archive.
 
-Use `-SkipChecks` only after the same commit has passed the checks in CI:
+Use `-SkipChecks` only when the same revision has already passed the complete
+gate in a trusted environment:
 
 ```powershell
 .\tools\build-release.ps1 -SkipChecks
 ```
 
-## Manual build
-
-For an unpackaged executable:
+Manual standalone build:
 
 ```powershell
 cargo build --release --locked -p ir-mixer-pro
@@ -65,59 +86,91 @@ Output:
 target\release\ir-mixer-pro.exe
 ```
 
-Release builds use thin LTO, one code-generation unit, and stripped symbols.
-They use the Windows GUI subsystem, so no console window appears. The native
-window title is `IR Mixer Pro`; the taskbar and Alt-Tab icon are generated from
-`design\logos\desktop-icon.png` when the window is created.
+Release builds use thin LTO, one code-generation unit, stripped symbols, and the
+Windows GUI subsystem. They display no console window.
 
-## Versioning
+## Version source
 
-Before a public build:
+Cargo package metadata is authoritative. General documentation intentionally
+contains no fixed product version. Before producing artifacts:
 
-1. Set the intended semantic version in the root `Cargo.toml` package section.
-2. Run `cargo update --workspace` only when dependency changes are intentional.
-3. Commit `Cargo.lock`; production builds use `--locked`.
-4. Build from a clean, tagged revision, for example `v0.1.0`.
+1. Set the intended semantic version in the root package manifest.
+2. Keep workspace package versions coherent where they are released together.
+3. Update dependencies only when intentional and commit `Cargo.lock`.
+4. Remove hardcoded UI version labels in favor of build metadata.
+5. Build from a clean, tagged revision.
 
-## Code signing
+Preset schema versions are independent of package versions and must not be
+changed merely because a release number changes.
 
-Unsigned executables can trigger Windows SmartScreen warnings. For distribution,
-sign both the executable and final installer (when an installer is introduced)
-with an Authenticode certificate. With `signtool.exe` from the Windows SDK:
+## Signing
+
+Unsigned executables and plugin bundles may trigger reputation or security
+warnings. Sign every binary artifact before final archives are created. With
+`signtool.exe` from the Windows SDK:
 
 ```powershell
 signtool sign /fd SHA256 /tr https://timestamp.digicert.com /td SHA256 /a "target\release\ir-mixer-pro.exe"
 signtool verify /pa /v "target\release\ir-mixer-pro.exe"
 ```
 
-Signing must happen before ZIP creation. Never commit certificates, private
-keys, passwords, or hardware-token credentials. CI secrets should provide
-signing access.
+Extend the same policy to plugin binaries. Never commit certificates, private
+keys, PINs, passwords, or hardware-token credentials. CI must obtain signing
+access through its secret store.
 
-## Release smoke test
+## Standalone smoke test
 
-Test the packaged executable on a clean Windows user account or VM:
+Run the packaged executable on a clean Windows account or VM:
 
-- The taskbar and Alt-Tab show the IR Mixer Pro icon and name.
-- The app opens without a console window.
-- A preview WAV plays, pauses, loops, stops, and restarts after reaching EOF.
-- Input and output device selection survives stream restart.
-- Loading, enabling, muting, soloing, reordering, and removing IRs works.
-- An empty IR rack passes preview/live input through.
-- Export works for mono and stereo, 16-bit, 24-bit, and 32-bit float, all sample
-  rates and lengths, with normalization both enabled and disabled.
-- Exported WAV files reopen in IR Mixer Pro and a second independent audio tool.
-- Preset save, load, and delete work from a path containing spaces and non-ASCII
-  characters.
-- Resize, minimize, maximize, restore, and close work at 100%, 150%, and 200%
-  Windows display scaling.
+- Product name and icon appear correctly in the window, taskbar, and Alt-Tab.
+- No console window opens.
+- Preview WAV browse, play, pause, restart, stop, EOF, and loop work.
+- Live input monitoring works when Windows input/output default rates match.
+- Device/channel changes rebuild streams and preserve valid selections.
+- Native IR rate and frame count remain correct in rack metadata.
+- Add, replace, enable, balance, gain, delay, pan, polarity, normalize, mute,
+  solo, reorder, remove, and clear operations work.
+- An empty or inaudible rack passes the monitored source through.
+- Output gain, bypass, limiter, meters, CPU, latency, and xrun status respond.
+- Frequency, impulse, phase, and spectrum views update after mix changes.
+- Preset save, overwrite, load, migration, missing-file state, and delete work
+  from paths containing spaces and non-ASCII characters.
+- Export works for every offered rate, encoding, channel mode, and length with
+  trimming and normalization on and off.
+- A 96 kHz native IR remains native quality in a 96 kHz export while monitoring
+  at a different rate.
+- Integer clipping errors are explicit; Float32 headroom exports successfully.
+- Exported WAVs reopen in IR Mixer Pro and an independent audio tool.
+- Resize, minimize, maximize, restore, and close work at common Windows scaling
+  factors, including the supported 880 × 680 minimum window.
 
-Also scan the ZIP with the organization's normal malware/reputation tooling and
-verify the published SHA-256 checksum after upload.
+Verify the published ZIP checksum after upload and scan artifacts with the
+organization's normal malware/reputation tooling.
 
-## Distribution notes
+## Plugin smoke-test requirements
 
-The ZIP is suitable for MVP/test distribution. A production installer should
-later add Start Menu shortcuts, uninstall support, installed executable icon and
-metadata, optional file associations, and signed upgrade handling. Choose an
-installer technology only when those requirements are finalized.
+Before a multi-format release, validate both VST3 and CLAP in representative
+hosts:
+
+- Discovery, scanning, instantiation, and editor lifecycle
+- Mono/stereo routing and varying host block sizes
+- Sample-rate changes and offline rendering
+- Automation for exposed parameters
+- Session save/reload with available and missing IR files
+- Multiple instances and rapid create/destroy cycles
+- Host bypass, suspend/resume, and transport transitions
+- Preset and mixed-IR export dialogs without blocking the process callback
+
+## Distribution
+
+The current ZIP has no installer. A public distribution decision must cover:
+
+- Repository and binary license
+- Install locations for standalone, VST3, and CLAP artifacts
+- Start Menu and uninstall behavior
+- Upgrade handling and optional file associations
+- Signing and reputation strategy
+- Whether a portable ZIP remains available beside an installer
+
+Choose installer technology only after these requirements and plugin bundle
+locations are finalized.

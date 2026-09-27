@@ -1,389 +1,206 @@
-# IR Mixer — Product Specification
+# IR Mixer Pro — Product Specification
 
-## 1. Product Summary
+This document defines the intended product contract. It is normative rather
+than a statement that every requirement is already implemented. Delivery order
+and remaining work are tracked in the [roadmap](roadmap.md).
 
-IR Mixer is a desktop application and audio plugin for creating guitar cabinet impulse-response blends.
+## Product goal
 
-Its central purpose is to make multi-IR experimentation faster than using several DAW tracks or multiple convolution plugins. Users can load multiple IRs, adjust them independently, hear the result in real time, and export the result as one combined IR for use in hardware modelers or other IR loaders.
+IR Mixer Pro lets guitarists and audio engineers build a cabinet sound from
+multiple impulse responses without constructing parallel DAW tracks. A user can
+load IRs, adjust each contribution, hear the result from a dry recording or
+live input, inspect the mix, save it, and export one reusable WAV IR.
 
-The first release targets:
+The same project model and audio engine target three first-release formats:
 
-- Standalone desktop use
-- VST3
-- CLAP
+- Windows standalone application
+- VST3 plugin
+- CLAP plugin
 
-Primary implementation stack:
+## Core workflows
 
-- Rust
-- nice-plug
-- egui
+### Build an IR mix
 
-## 2. Core Use Cases
+- Load any practical number of mono or stereo WAV IRs.
+- Enable up to 16 IRs simultaneously in the real-time engine.
+- Adjust gain or percentage balance, positive delay, polarity, pan,
+  normalization, mute, solo, enabled state, and order per IR.
+- Replace or remove an IR without disturbing unrelated slots.
+- Preserve each IR's identity color when slots move or other slots are removed.
 
-### 2.1 Build a cabinet blend
-
-A user loads multiple cabinet IRs, for example:
-
-- Close SM57 IR
-- Ribbon IR
-- Room IR
-- Rear-cab IR
-
-The user adjusts level, delay, polarity, and pan until the blend sounds right.
-
-### 2.2 Preview without plugging in a guitar
-
-The user selects a dry DI guitar recording and loops it while adjusting the mix.
-
-The preview must react to parameter changes in real time.
-
-### 2.3 Use live guitar input
-
-In standalone mode the user selects an audio-interface input and hears it through the current IR mix using a selected output device.
-
-This is intended for interactive tone design without requiring a DAW.
-
-### 2.4 Use inside a DAW
-
-The user inserts the VST3 or CLAP plugin on a guitar track and adjusts the same IR mix while playing or during playback.
-
-The DAW supplies audio input, output, sample rate, transport context, and buffer size.
-
-### 2.5 Export a combined IR
-
-After building the desired blend, the user exports a single WAV impulse response that approximates the active mix.
-
-Typical destination devices include guitar modelers such as Hotone Ampero 2.
-
-## 3. N-Way IR Mixing
-
-The product must support more than two IRs.
-
-Conceptually, for N IRs:
+The linear mix is conceptually:
 
 ```text
-output = Σ gain_i × convolve(input, IR_i)
+output = Σ gain_i × convolve(input, transformed_ir_i)
 ```
 
-For exported IRs:
+Mute, solo, enable, normalization, polarity, delay, and pan determine which
+sources contribute and how they are transformed.
 
-```text
-mixed_ir = Σ gain_i × transformed(IR_i)
-```
+### Preview with a recording
 
-where `transformed()` incorporates supported per-IR operations such as delay and polarity.
+- Load a mono or stereo WAV file, normally a dry guitar DI.
+- Play, pause, stop, return to the beginning, and loop.
+- Apply input gain and optional source normalization.
+- Hear mixer changes without rebuilding the complete mixed IR.
 
-The UI should not be designed around exactly two IRs.
+### Monitor live input
 
-## 4. IR Slot Model
+- Select an input device and channel.
+- Select an output device and mono or stereo output pair.
+- Select a supported buffer size and enable monitoring.
+- Preserve the current IR mix when switching between preview and live modes.
 
-Each IR slot contains at minimum:
+Windows shared-mode monitoring follows the selected output endpoint's default
+sample rate. Live monitoring requires the selected input and output default
+rates to match. Detailed behavior is specified in
+[audio-processing.md](audio-processing.md).
 
-- Unique ID
-- File reference
-- Display name
-- Sample rate
-- Channel count
-- IR length
-- Gain
-- Delay samples
-- Polarity state
-- Mute state
-- Solo state
-- Enabled state
-- Pan
-- Order index
+### Work inside a host
 
-Optional future metadata:
+VST3 and CLAP builds must accept audio, sample rate, block size, and routing
+from the plugin host. They must hide standalone device controls while retaining
+the IR rack, analysis, presets, state persistence, and export.
 
-- Manufacturer / pack
-- Cabinet
-- Speaker
-- Microphone
-- Mic position
-- User notes
-- Tags
+### Export a mixed IR
 
-## 5. Per-IR Controls
+- Export mono or stereo WAV at 44.1, 48, or 96 kHz.
+- Export 16-bit PCM, 24-bit PCM, or 32-bit float.
+- Trim or pad to 1024, 2048, or 4096 frames, or retain the natural mixed length.
+- Apply final normalization only when explicitly enabled.
+- Produce a result that mathematically represents the configured linear mix as
+  closely as possible.
 
-### Gain
+## IR slot model
 
-- Display in dB.
-- Should allow precise numeric entry.
-- Suggested initial range: approximately -60 dB to +12 dB.
-- Fader / knob scaling should emphasize useful mixing ranges around 0 to -24 dB.
+Every slot stores:
+
+- Stable ID and palette index
+- Filename, path, and relocatable file reference metadata
+- Native sample-rate and length metadata
+- Enabled, mute, and solo state
+- Gain and balance percentage
+- Delay in samples
+- Polarity and per-IR normalization
+- Stereo pan
+- Load/error state and display waveform
+
+The project model may contain more than 16 slots. The 16-IR limit applies only
+to simultaneously enabled real-time convolvers.
 
 ### Balance Mode
 
-The IR rack provides an optional **Balance Mode** for unity-sum amplitude blends.
-When enabled, each Level control displays its percentage contribution instead of
-dB and all loaded IR percentages total exactly 100%. A single IR is fixed at
-100%; adding an IR redistributes all slots equally. Editing one slot
-proportionally redistributes the remaining slots. The stored percentage is
-converted to the equivalent linear gain for monitoring and export.
+Balance Mode expresses the active mix as unity-sum amplitude percentages:
 
-### Delay
+- All loaded slots total exactly 100%.
+- One IR is fixed at 100%.
+- Enabling the mode derives percentages from the current linear gains.
+- Editing one slot proportionally redistributes the remaining percentage.
+- Adding or removing an IR equalizes the remaining slots.
+- Percentages are converted to equivalent linear gains for monitoring,
+  analysis, presets, and export.
 
-- Adjustable in samples.
-- Also display an equivalent millisecond value.
-- Allow positive delay in v1.
-- Negative relative alignment may be supported later through reference-slot logic or pre-roll padding.
+### Delay and polarity
 
-### Polarity
+- Delay is non-negative and limited to 4096 engine samples.
+- The UI shows samples and the equivalent milliseconds at the active engine rate.
+- Polarity is a `+1` or `-1` multiplier.
+- Negative delay and automatic phase alignment are post-release features.
 
-- Normal
-- Inverted
+### Solo, mute, and bypass
 
-### Mute / Solo
+- Multiple IRs may be soloed.
+- When any enabled slot is soloed, non-soloed slots do not contribute.
+- Muted or disabled slots do not contribute.
+- Output bypass crossfades to the dry source rather than changing stored mix
+  parameters.
 
-- Multiple soloed channels should be permitted.
-- If one or more slots are soloed, non-soloed channels are excluded.
+## Analysis
 
-### Pan
+The application provides:
 
-- Relevant for stereo monitoring / plugin output.
-- Export behavior must be explicit because many hardware cabinet IR formats are mono.
+- Combined and per-IR frequency response
+- Combined impulse response
+- Combined and per-IR phase response
+- A real-time output spectrum trace
+- Stereo output level and peak meters
+- Engine sample rate, mixed length, estimated latency, CPU load, active-IR
+  count, and engine status
 
-### Reordering
+Mix-affecting changes schedule background analysis. Existing graphs remain
+visible until the newest calculation completes.
 
-Users should be able to reorder IR slots by drag-and-drop or explicit move controls.
+## Presets and state
 
-Order should not change the mathematical result when all processing is linear, but it affects usability and preset organization.
+- Presets use a versioned JSON schema.
+- Presets retain IR references, slot order and controls, Balance Mode, output
+  controls, analysis selections, and export choices.
+- Device and channel selections are machine-local and are not portable preset
+  state.
+- Missing IR files remain visible as errored slots so mixer settings are not
+  silently discarded.
+- Plugin builds must persist equivalent state inside host sessions.
 
-## 6. Source Modes
+Preset schema and migration behavior are documented in
+[architecture.md](architecture.md#preset-storage-and-migration).
 
-### Preview File
+## Monitoring and output safety
 
-Supported initial source:
+- Standalone monitoring supports selectable output gain and bypass.
+- The optional stereo-linked safety limiter prevents output clipping at a
+  -0.3 dBFS ceiling with 1 ms lookahead and 50 ms release.
+- Limiter delay is included in the displayed latency.
+- The monitoring limiter and bypass are never rendered into exported IR data.
+- Empty or inaudible racks pass the source through in the monitor path.
 
-- WAV
+## File compatibility
 
-Preferred input material:
+Initial import support is WAV only:
 
-- Dry / DI guitar
+- Mono or stereo
+- 8-, 16-, 24-, or 32-bit integer PCM
+- 32-bit floating point
 
-Controls:
+Files with more than two channels or unsupported encodings produce an explicit
+error. AIFF, FLAC, IR folder import, and library management are post-release
+possibilities.
 
-- Browse / load
-- Play
-- Pause
-- Stop
-- Seek
-- Loop
-- Timeline / waveform
-
-Potential later formats:
-
-- AIFF
-- FLAC
-
-### Live Input
-
-Standalone-only controls:
-
-- Input device
-- Input channel
-- Output device
-- Output channel configuration
-- Buffer size
-- Monitor enable
-
-In Windows shared mode, the selected output endpoint owns the monitoring clock.
-The standalone engine follows that endpoint's default sample rate; users change
-the shared-mode rate in Windows or the device control panel. The app displays
-the active rate but does not offer a competing monitoring-rate selector.
-
-The user should be able to switch between preview file and live input without losing the IR mix.
-
-## 7. Monitoring Modes
-
-Useful comparison modes:
-
-- Dry
-- Selected IR only
-- Full mix
-- Bypass
-
-Potential later modes:
-
-- Snapshot morphing
-
-## 8. Analysis
-
-### IR waveform
-
-Show the impulse waveform for the selected IR or combined IR.
-
-### Frequency response
-
-Show magnitude response for:
-
-- Selected IR
-- Combined mix
-
-Optional overlays may be added later.
-
-### Phase
-
-Show phase response or a simplified phase/alignment visualization.
-
-### Spectrum
-
-For live / preview audio, show a real-time output spectrum.
-
-### Level meters
-
-At minimum:
-
-- Input level
-- Output level
-
-Optional later:
-
-- Per-IR post-convolution levels
-
-## 9. Presets
-
-Preset selection and save actions live in the compact top bar under the
-**Presets** label. There is no separate preset card.
-
-A preset should store:
-
-- IR slot list
-- IR file references
-- Slot order
-- Gain
-- Balance Mode and per-IR balance percentages
-- Delay
-- Polarity
-- Mute / solo state
-- Pan
-- Output gain
-- Relevant analysis / UI state where appropriate
-
-Device selections should generally not be part of portable plugin presets unless explicitly configured as application preferences.
-
-Preset state must be versioned.
-
-## 10. Export
-
-Export mixed IR as WAV.
-
-Initial options:
-
-- Sample rate
-- Bit depth
-- Mono / stereo where supported
-- Output length
-- Normalize toggle
-- Optional peak target when normalization is enabled
-
-Suggested hardware-friendly default:
-
-- 48 kHz
-- 24-bit PCM
-
-Export must not silently normalize unless the user has enabled it.
-
-Explicit IR and preview normalization targets 0 dBFS. Explicit final export
-normalization targets -1 dBFS. The standalone safety limiter is stereo-linked
-with a -0.3 dBFS ceiling, 1 ms lookahead, and 50 ms release. Its fixed delay is
-included in the displayed latency and it does not alter exported IR data.
-
-If IRs use different sample rates, export processing should resample explicitly using a high-quality resampler.
-
-## 11. Standalone vs Plugin Behavior
+## Platform responsibilities
 
 ### Standalone
 
-Contains:
+The application owns audio-device discovery, channel selection, buffer size,
+preview transport, monitoring, and native file dialogs.
 
-- Audio-device selection
-- Live input controls
-- Preview-file transport
-- Buffer settings
-- Output routing
+### VST3 and CLAP
 
-### VST3 / CLAP
+The host owns audio I/O, sample rate, block size, routing, and editor window
+lifecycle. Host adapters must remain thin and must not duplicate the shared mix
+or export logic.
 
-Does not expose device selection or host buffer settings.
+## Quality requirements
 
-The host controls audio I/O.
+- Do not allocate, deallocate, block, lock a mutex, access files, or perform
+  unbounded work on the audio callback.
+- Smooth or crossfade audible real-time parameter changes.
+- Keep file decoding, resampling, FFT preparation, analysis, preset I/O, and
+  export off the callback.
+- Preserve native-rate decoded IRs so monitoring-rate changes never become the
+  source for later export resampling.
+- Do not normalize implicitly.
+- Reject integer PCM export that would clip when final normalization is off;
+  32-bit float export may retain headroom above 0 dBFS.
+- Remain responsive at supported desktop window sizes and DPI scales.
 
-The plugin retains:
+## First-release exclusions
 
-- N-IR rack
-- Analysis
-- Mix presets
-- Export mixed IR
-- Plugin state persistence
-
-## 12. Non-Goals for v1
-
-Not required in the first release:
-
-- Full amp modeling
-- NAM model loading
-- Distortion / drive modeling
-- General-purpose reverb convolution
-- AU
-- AAX
+- Amp, distortion, drive, or NAM modeling
+- General-purpose reverb design controls
+- AU and AAX
 - Mobile builds
-- Cloud preset sync
-- Marketplace / IR store
+- Cloud sync, marketplace, or IR store
+- Automatic phase alignment or minimum-phase conversion
+- IR library tagging and search
 
-The architecture should not prevent future expansion into some of these areas.
-
-## 13. Performance Goals
-
-The product should feel suitable for live guitar monitoring on a typical modern desktop machine.
-
-Goals:
-
-- Stable operation at common 48 kHz configurations.
-- Practical operation at 64–128 sample host / device buffers where the hardware permits it.
-- The standalone default permits 16 enabled real-time IRs. Additional slots may
-  remain stored and disabled; enabling beyond the configured capacity produces
-  an explicit error.
-- Parameter changes should feel immediate.
-- Avoid audio-thread allocations and locks.
-- UI load should not impact audio stability.
-
-No hard maximum active-IR count should be promised before benchmarking.
-
-The UI may display CPU / load warnings if the active configuration becomes too expensive.
-
-## 14. Error Handling
-
-The product should gracefully handle:
-
-- Missing preset IR files
-- Unsupported WAV encodings
-- Sample-rate mismatches
-- Stereo / mono mismatches
-- Device disconnects
-- Audio-device errors
-- Export destination errors
-- Invalid or corrupted preset files
-
-The UI should identify the affected IR slot rather than failing the whole project when possible.
-
-## 15. Future Ideas
-
-Potential post-v1 capabilities:
-
-- Automatic phase alignment
-- Correlation meter
-- Delay estimation
-- IR trim / crop editor
-- Minimum-phase conversion
-- Room-IR blending helpers
-- IR tagging and browser
-- Drag-and-drop entire folders
-- Searchable IR library
-- Snapshots
-- Preset morphing
-- Built-in test signals
-- Batch export
-- AU / AAX support
-- Optional amp / NAM stage before the IR engine
+An IR may still contain a captured room or reverb tail; that is ordinary linear
+convolution material rather than a separate reverb feature.

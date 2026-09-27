@@ -1,526 +1,267 @@
-# IR Mixer — UI Design Specification
+# IR Mixer Pro — UI Design
 
-> The normative colors, typography, spacing, geometry, and interaction tokens are
-> defined in [ui-design-system.md](ui-design-system.md). This document defines
-> product layout and behavior; the design-system document defines visual treatment.
+This document describes the implemented application layout and interaction
+contract. Visual tokens and reusable component rules are defined in
+[ui-design-system.md](ui-design-system.md).
 
-## 1. Design Goal
+The current composed application screenshot is
+[`docs/screenshots/app.png`](../docs/screenshots/app.png). Reviewed snapshots
+under `crates/ir-ui/tests/snapshots` are the regression reference for supported
+layouts and scales. Images under `design/mockups/` preserve the earlier design
+direction but do not override current implementation behavior.
 
-The UI should reproduce the approved concept: a polished, modern, dark desktop audio application that feels closer to a professional DAW tool than a generic Rust desktop program.
+## Design goal
 
-The interface must not look like stock egui.
+IR Mixer Pro uses a dense, professional dark audio-tool interface rather than
+stock egui styling. The UI prioritizes fast scanning of many IRs, visible audio
+state, and clear separation between source, mix, output, analysis, and export.
 
-Create reusable custom controls and a dedicated theme system.
+The visual language uses:
 
-## 2. Visual Language
+- Near-black and dark-charcoal layered surfaces
+- Electric blue for primary interaction
+- Stable per-IR identity colors for waveforms and graph traces
+- Light neutral typography with subdued metadata
+- Compact controls, restrained rounding, and clean one-pixel borders
+- Explicit loading, disabled, error, clipping, and engine states
 
-### Background
+## Window and responsive layout
 
-Use layered dark values rather than one flat black surface.
+The standalone window opens at 1536 × 1024 logical pixels and supports a minimum
+size of 880 × 680. It uses borderless Windows chrome with custom minimize,
+maximize/restore, and close controls. Empty top-bar space is draggable and six-
+pixel edge regions provide native resize behavior.
 
-Suggested hierarchy:
+The application page has three responsive arrangements:
 
-- App background: very dark charcoal
-- Main panels: slightly lighter charcoal
-- Raised cards: another small step lighter
-- Hover states: subtle lightening
-- Active selections: dark surface with teal / cyan border or fill accent
-
-### Accents
-
-Primary:
-
-- Cyan / teal
-
-Secondary:
-
-- Purple / violet
-
-Warnings:
-
-- Amber
-
-Errors / clipping:
-
-- Red
-
-Success / active engine:
-
-- Green or cyan depending on context
-
-Avoid excessive saturation. The design should feel premium, not arcade-like.
-
-### Typography
-
-Use a clean sans-serif font with strong legibility at compact sizes.
-
-Hierarchy:
-
-- App / project title
-- Section title
-- Primary control label
-- Secondary metadata
-- Numeric value
-- Status text
-
-Numeric controls should use consistent width and alignment.
-
-## 3. Main Window Structure
-
-Approved large-screen structure:
+### Wide — 1320 points and above
 
 ```text
-┌───────────────────────────────────────────────────────────────────────────┐
-│ Top Bar: Logo / Project / Preset / Save / Settings / CPU                │
-├───────────────┬──────────────────────────────────────┬────────────────────┤
-│ Source        │ N-IR Mixer Rack                     │ Output / Export     │
-│               │                                      │                    │
-│ Preview/Live  │ IR Slot 1                            │ Master meter       │
-│ transport     │ IR Slot 2                            │ Output gain        │
-│ device input  │ IR Slot 3                            │ Export Controls    │
-│ waveform      │ ...                                  │ Export             │
-│               │ + Add IR                             │                    │
-├───────────────┴──────────────────────────────────────┴────────────────────┤
-│ Analysis: Frequency / Phase / Spectrum / Combined Waveform              │
-├───────────────────────────────────────────────────────────────────────────┤
-│ Status Bar: Sample Rate / Buffer / CPU / Active IRs / Engine State      │
-└───────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ Top bar                                                            │
+├──────────────┬───────────────────────────────┬──────────────────────┤
+│ Input Source │ IR rack                       │ Output               │
+│              │                               ├──────────────────────┤
+│              │                               │ Export Mixed IR      │
+├──────────────┴───────────────────────────────┤                      │
+│ Analysis & Preview                           │                      │
+├──────────────────────────────────────────────┴──────────────────────┤
+│ Status bar                                                          │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-The approved v4 layout has no top navigation tabs or separate preset card. At
-wide widths, Input Source sits left of the IR rack, Output and Export form the
-right rail, and Analysis & Preview spans the input and rack columns. The exact
-panel proportions adapt to window width.
+Input Source is 280 points wide, the right rail is 300 points, and the IR rack
+uses the remaining central width. Analysis spans the source and rack columns.
 
-## 4. Top Bar
+### Medium — 980 to 1319 points
 
-Contents:
+Input Source, Output, and Export stack in a 300-point side column. The rack and
+analysis remain in the main column.
 
-- Product logo / name
-- Current project or preset name
-- Mix preset dropdown
-- Save preset
-- Undo / redo later
-- Settings button
-- Optional CPU indicator
-- Standalone-only minimize, maximize / restore, and close controls
+### Narrow — below 980 points
 
-The top bar should remain compact.
+Cards stack vertically. The rack and analysis preserve their useful content
+width inside horizontal scrolling rather than compressing audio controls into
+unreadable columns. The complete page remains vertically scrollable.
 
-The standalone build uses borderless native chrome. Empty top-bar space is the
-window drag region, and invisible six-pixel edge handles provide native side and
-corner resizing with the platform resize cursors. Plugin editors omit these
-controls and continue to use their host window.
+## Top bar
 
-## 5. Source Panel
+The top bar contains:
 
-### Source selector
+- Product logo, product name, build label, and short tagline
+- CPU percentage
+- Preset dirty indicator and preset selector
+- Overflow menu for Save, Save As, and Delete
+- Settings action
+- Standalone window controls
 
-Use segmented controls or tabs:
+The Settings action currently reports that settings are not implemented. It is
+tracked as a release decision in the [roadmap](../docs/roadmap.md).
+
+Plugin mode omits standalone window controls and relies on host window chrome.
+
+## Input Source
+
+The source card switches between **Preview File** and **Live Input** with a
+segmented control. Both modes share input gain and normalization controls.
+
+### Preview File
+
+The implemented preview workflow contains:
+
+- Filename and WAV metadata
+- Browse action with loading spinner and disabled repeat activation
+- Symmetric waveform envelope
+- Return-to-start, play/pause, and stop controls
+- Loop toggle
+- Elapsed and total duration
+- Inline decode/load errors
+
+Replacing a preview keeps prior content visible until the new decode succeeds.
+There is no timeline seeking in the current interface.
+
+### Live Input
+
+Standalone mode contains:
+
+- Input-device selector
+- Input-channel selector derived from the device topology
+- Shared input/output buffer-size selector
+- Monitor Input toggle
+
+Output device and channels live in the Output card. The active monitoring rate
+comes from the selected Windows output endpoint and is displayed in analysis and
+status areas rather than exposed as an editable app control.
+
+Plugin mode replaces device controls with a message that routing and buffer
+configuration are supplied by the host.
+
+## IR rack
+
+The rack is the primary work area. It supports an arbitrary stored slot count,
+vertical scrolling, and horizontal scrolling when the table cannot fit.
+
+The header contains:
+
+- Balance Mode
+- Add IR
+- Remove selected IR
+- Clear All
+- Normalize All
+
+Each row contains these columns:
 
 ```text
-[ Preview File ] [ Live Input ]
+# | Enable | IR File | Waveform | Level/Balance | Pan | Delay |
+Polarity | Normalize | Solo | Mute | Actions
 ```
 
-### Preview File mode
+The filename block shows the WAV's native sample rate and frame count. The
+waveform and analysis trace use the slot's stable identity color. Level and Pan
+knobs remain neutral so color does not imply a semantic warning.
 
-Show:
+The row action menu provides Move Up, Move Down, Replace IR File, and Remove IR.
+Reordering is explicit; drag-and-drop reorder is roadmap work.
 
-- Loaded filename
-- Browse button
-- Waveform / timeline
-- Play / pause
-- Stop
-- Loop
-- Time position
+Add and replace actions show an in-button spinner while background preparation
+is active. Existing metadata remains visible during replacement. New slots show
+an intentional loading state and errors stay associated with the affected row.
 
-The Browse control replaces its folder icon with an animated spinner and is
-disabled from file-picker launch through decode completion. Existing filename,
-metadata, and waveform content remain visible during replacement; load failures
-continue to use inline error feedback.
-While preview playback is active, the transport control shows Pause and pauses
-the current position when activated. A just-issued Play command remains in the
-playing state until the audio thread acknowledges it, avoiding a transient reset
-back to the Play icon.
+### Level and Balance Mode
 
-### Live Input mode
+Ordinary Level uses a compact dB knob. Balance Mode changes the column label and
+control to a 0–100% contribution. The sole IR is disabled at 100%; edits with
+multiple IRs immediately redistribute the remaining percentage.
 
-Show:
+Knobs support vertical drag, mouse wheel, keyboard arrows, Shift fine adjustment,
+and double-click reset. Precise dB editing uses the adjacent numeric field where
+the larger source/output controls provide one. Rack-level and balance values are
+displayed directly on the compact knobs.
 
-- Input device
-- Input channel
-- Output device
-- Buffer size
-- Monitoring toggle
+### Delay, pan, and channel actions
 
-The standalone engine follows the selected output endpoint's Windows shared-mode
-default sample rate. Show that active rate in status/analysis readouts rather
-than as an editable input control. Export retains its independent rate selector.
+- Delay is entered in samples and displays milliseconds beneath it.
+- Pan shows left, center, or right-oriented values through a constant-power law.
+- Polarity uses an explicit Ø control.
+- Solo and Mute use labeled toggles and permit multiple soloed rows.
+- Normalize and Enable are checkboxes with visible checked states.
 
-Plugin builds should hide device-specific controls cleanly rather than leaving disabled empty widgets.
+## Output
 
-## 6. IR Rack
+Standalone Output contains:
 
-This is the visual center of the application.
+- Output device and topology-derived mono/stereo channel selector
+- Output gain knob and precise dB editor
+- Stereo level/peak meter
+- Buffer-size selector
+- **Limit Output (Prevent Clipping)** toggle
+- Bypass toggle
 
-It must support N rows and vertical scrolling.
+The limiter is a real monitoring feature, not a visual placeholder. Bypass
+crossfades to dry input. Plugin mode replaces device and buffer selectors with
+host-routing status while retaining mix output controls.
 
-Each row should feel like a compact channel strip / rack module.
+## Export Mixed IR
 
-Suggested row layout:
+Export settings are inline in the right-rail card; only destination selection
+uses a native file dialog. The card contains:
 
-```text
-┌──────────────────────────────────────────────────────────────────────┐
-│ ≡  01  York MRSH Mix 01.wav                     [S] [M] [Ø] [×]   │
-│                                                                      │
-│ waveform thumbnail   Gain      Delay      Pan        Level meter     │
-│ ────────────────      -3.0 dB   0 samp     C          █████░░        │
-│                                                                      │
-│ metadata: 48 kHz • mono • 1024 samples                              │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-Controls:
-
-- Drag handle
-- Slot number
-- File name
-- File browse / replace action
-- Solo
-- Mute
-- Polarity
-- Remove
-- Gain
-- Delay
-- Pan
-- Small waveform
-- Optional per-slot meter
-
-Use tooltips for compact icon controls.
-
-## 7. Add IR Interaction
-
-At bottom of rack:
-
-```text
-[ + Add IR ]
-```
-
-The rack header also places a **Balance Mode** checkbox immediately to the left
-of Add IR. When enabled, the Level column becomes Balance and shows percentage
-knobs. Percentages sum to 100% across all loaded IRs; the sole knob for one IR
-is disabled at 100%.
-
-Support later:
-
-- Drag-and-drop WAV files
-- Multiple-file drop
-- Folder drop
-
-When new IRs are added, preserve existing scroll position sensibly.
-
-While an Add IR batch is being prepared, the Add IR button shows an in-button
-spinner and cannot be triggered again. A per-slot replacement uses the same
-treatment in that row's action control. Do not replace file metadata with
-temporary loading text; retain existing metadata or leave it blank for a new
-slot until decoding completes.
-
-## 8. Gain Control
-
-IR rack levels use a compact rotary control. Its numeric dB value sits above the
-dial, matching the compact Pan control's geometry. The level knob uses neutral
-control colors; IR identity colors remain on waveforms and analysis traces.
-
-Requirements:
-
-- Drag interaction
-- Fine adjustment modifier
-- Double-click reset
-- Numeric direct entry
-- dB suffix
-
-When Balance Mode is enabled, this same control uses a `%` suffix and a 0–100
-range. Changes redistribute the other IRs immediately to retain a 100% total.
-
-## 9. Delay Control
-
-Display both:
-
-```text
-7 samples
-0.146 ms
-```
-
-Primary editing can be sample-based.
-
-Support:
-
-- Drag adjustment
-- Arrow keys
-- Direct numeric input
-- Reset to zero
-
-## 10. Polarity
-
-Use a recognizable Ø-style control.
-
-States must be visually unmistakable.
-
-Do not rely only on subtle color changes.
-
-## 11. Mute / Solo
-
-Use conventional audio semantics.
-
-Suggested:
-
-- `M` amber / highlighted when active
-- `S` cyan or green when active
-
-Solo logic should reflect multiple simultaneous solo states.
-
-## 12. Output Panel
-
-Contains:
-
-- Large stereo or mono output meter
-- Output gain
-- Clip indicator
-- Bypass
-- Optional limiter / safety behavior only if explicitly added later
-
-Do not silently process output beyond the configured mix.
-
-## 13. Preset Controls
-
-Preset controls live only in the compact top bar under **Presets**:
-
-- Preset dropdown / searchable list
-- Previous / next
-- Save
-- Save As
-- Delete
-- Favorite later
-
-Display unsaved changes with a subtle dirty-state indicator.
-
-## 14. Export Panel
-
-Primary button:
-
-```text
-[ Export Mixed IR ]
-```
-
-Export dialog options:
-
-- Destination
-- Filename
+- Output filename/destination action
 - Sample rate
 - Bit depth
-- Mono / stereo
-- Length / trim
-- Normalize toggle
+- Mono/stereo mode
+- Trim to Length toggle and length selector
+- Final Normalize toggle
+- Export action, progress, completion, and error state
 
-The dialog should display a concise summary of the result before export.
+While exporting, the action is disabled and progress is displayed. Monitoring
+rate, bypass, and limiter state do not redefine export settings.
 
-## 15. Analysis Area
+## Analysis & Preview
 
-Use tabs or a multi-panel arrangement depending on available width.
+The analysis card contains four views:
 
-Suggested tabs:
+- Frequency Response
+- Impulse Response
+- Phase
+- Spectrogram
 
-```text
-[ Frequency ] [ Phase ] [ Spectrum ] [ Waveform ]
-```
+The current Spectrogram tab renders a real-time spectrum trace rather than a
+time-frequency spectrogram. Renaming the tab or implementing a true spectrogram
+is tracked in the roadmap.
 
-### Frequency Response
+Frequency and phase views show per-IR identity traces plus an emphasized mixed
+trace. The impulse view shows the signed combined response. View and smoothing
+selectors remain in the tab header. Analysis errors are shown inline; normal
+recalculation keeps the previous completed graph visible.
 
-- Logarithmic frequency axis
-- dB vertical axis
-- Combined response emphasized
-- Optional selected-IR overlay
-- Hover readout
+The card footer displays monitoring sample rate, mixed IR length, estimated
+latency, and CPU usage.
 
-### Phase
+## Status bar
 
-- Frequency vs phase
-- Clear zero line
-- Avoid overcomplicated presentation initially
+The bottom status bar shows:
 
-### Spectrum
+- Engine status or current operation/error
+- Active and total IR count
+- Monitoring sample rate
+- Buffer size and approximate duration
 
-- Real-time FFT of preview / live output
-- Smooth enough to be readable
-- UI updates decoupled from the audio thread
+Success and error colors are paired with text and a status dot. Color alone is
+never the only indication.
 
-### Waveform
+## Loading, empty, and error states
 
-- Combined impulse waveform
-- Selected individual IR overlay or switch
-- Zoom later
+- Empty rack and preview areas have intentional instructional copy.
+- Loading buttons retain their dimensions and replace icons with spinners.
+- Decode, device, analysis, and export errors remain visible near the affected
+  workflow and in global status when appropriate.
+- Controls that cannot produce a valid action are disabled rather than silently
+  accepting input.
 
-Frequency, phase, and combined impulse views update from the latest completed
-background analysis whenever a mix-affecting IR control changes. Keep the
-current graph visible while a newer result is calculated; never replace the
-chart with a transient loading banner.
+## Responsive and accessibility requirements
 
-## 16. Meters
+- Tooltips and accessibility labels are mandatory for icon-only controls.
+- Keyboard focus order follows visual order.
+- Custom value widgets expose slider semantics through egui/AccessKit.
+- Text truncation reveals full values on hover where filenames or devices may be
+  long.
+- Graphs, meters, and waveforms must remain sharp at tested scale factors.
+- New UI behavior requires interaction tests and reviewed snapshots at affected
+  widths/scales.
 
-Meters should be custom-painted rather than generic progress bars.
+## Planned interactions
 
-Requirements:
+The following are deliberately not described as current behavior:
 
-- Fast attack
-- Slower decay
-- Peak hold
-- Clip marker
-- dB scale where space permits
+- Preview seeking
+- Drag-and-drop reorder or file/folder drop
+- Global keyboard shortcuts
+- Right-click rack context menus
+- Undo/redo
+- Searchable preset browser and favorites
+- Full Settings UI
+- True time-frequency spectrogram
 
-The visual refresh rate does not need to match the audio callback rate.
-
-## 17. egui Component Library
-
-Create reusable custom widgets such as:
-
-```text
-IrPanel
-IrSlotCard
-AudioKnob
-MiniFader
-DbValueEditor
-SampleDelayEditor
-PolarityButton
-MuteButton
-SoloButton
-LevelMeter
-WaveformView
-SpectrumView
-FrequencyResponseView
-PhaseView
-SegmentedControl
-SectionHeader
-DeviceSelector
-TransportBar
-```
-
-Centralize colors, spacing, radii, typography, and interaction constants.
-
-Suggested module structure:
-
-```text
-ir-ui/src/
-├── theme.rs
-├── app.rs
-├── layout.rs
-├── widgets/
-│   ├── knob.rs
-│   ├── fader.rs
-│   ├── meter.rs
-│   ├── buttons.rs
-│   └── value_editor.rs
-├── components/
-│   ├── top_bar.rs
-│   ├── source_panel.rs
-│   ├── ir_rack.rs
-│   ├── ir_slot.rs
-│   ├── output_panel.rs
-│   ├── top_bar.rs
-│   └── export_panel.rs
-└── graphs/
-    ├── waveform.rs
-    ├── spectrum.rs
-    ├── frequency.rs
-    └── phase.rs
-```
-
-## 18. Mock-First UI Development
-
-Before DSP exists, the UI should run with realistic mock data.
-
-Default demo state may include:
-
-```text
-IR 1: York MRSH Mix 01.wav
-IR 2: York MRSH 121.wav
-IR 3: York MRSH Room.wav
-IR 4: York Greenback 57.wav
-```
-
-Example levels:
-
-```text
-Mix 01      -1.5 dB
-121         -7.0 dB
-Room       -18.0 dB
-Greenback  -12.0 dB
-```
-
-Mock behavior should include:
-
-- Animated meters
-- Fake live spectrum
-- Deterministic frequency graph
-- Functional transport controls
-- IR reorder
-- Add / remove
-- Mute / solo
-- Delay / polarity
-- Preset switching
-- Export dialog
-
-This allows the product experience to be validated before audio-engine complexity is introduced.
-
-## 19. Responsive Behavior
-
-The target is primarily desktop, but window resizing should be graceful.
-
-Large width:
-
-- Source left
-- IR rack center
-- Output / Export right
-
-Medium width:
-
-- Source and output panels may narrow
-- Analysis may move to tabs
-
-Small supported width:
-
-- Right-side panels may stack below the rack
-
-Do not attempt phone-sized responsive design.
-
-## 20. Interaction Details
-
-Support common desktop conventions:
-
-- Mouse wheel scrolling
-- Ctrl/Cmd + click where useful
-- Shift for fine adjustment
-- Double-click reset
-- Right-click context menus
-- Keyboard navigation where practical
-- Drag-and-drop reorder
-
-Future keyboard shortcuts may include:
-
-- Space: preview play / pause
-- M: mute selected IR
-- S: solo selected IR
-- Delete: remove selected IR
-- Ctrl/Cmd+S: save preset
-
-## 21. Visual Quality Bar
-
-Before considering the UI complete:
-
-- No default egui-looking widgets should remain in the main workflow unless intentionally styled.
-- Spacing should be consistent.
-- Numeric baselines should align.
-- Hover / active / disabled states should be designed.
-- Graphs should remain readable on high-DPI displays.
-- Empty states should look intentional.
-- Loading and error states must be designed, not just logged.
-- The UI should look credible beside modern commercial guitar plugins.
+They are tracked in [roadmap.md](../docs/roadmap.md) and must update this contract
+when implemented.

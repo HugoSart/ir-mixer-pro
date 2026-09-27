@@ -2,10 +2,13 @@
 
 ## 1. Purpose and Source of Truth
 
-This document is the normative visual contract for IR Mixer. The approved
-[`main-screen-v4.png`](mockups/main-screen-v4.png) mockup is the visual source of truth.
-[`ui-design.md`](ui-design.md) defines product layout and behavior; this document
-defines how the interface is rendered.
+This document is the normative visual-token and component contract for IR Mixer.
+[`ui-design.md`](ui-design.md) defines implemented layout and behavior. The
+current composed reference is
+[`docs/screenshots/app.png`](../docs/screenshots/app.png), and reviewed images in
+`crates/ir-ui/tests/snapshots` are the visual-regression source of truth.
+`design/mockups/` retains historical design direction but does not override the
+implemented UI or reviewed snapshots.
 
 Use the token names below in Rust. Do not scatter unnamed colors, spacing values,
 corner radii, or text sizes throughout widget code.
@@ -148,8 +151,8 @@ floating menus: black at 28% opacity, blur 16, vertical offset 6.
 - Knobs: when focused, Right/Up increases the value by 0.01 and Left/Down
   decreases it by 0.01. Holding Shift uses a 0.001 fine-adjustment step.
 - Reset: double-click restores the widget's declared default value.
-- Numeric entry: clicking the value opens a compact editor; Enter commits and
-  Escape cancels.
+- Numeric entry: source/output gain and delay use egui numeric fields that accept
+  drag or direct typed entry. Compact rack knobs do not open a separate editor.
 
 Tooltips are required for icon-only actions. Keyboard focus order follows visual
 order. Custom widgets must expose useful labels through egui/AccessKit.
@@ -239,11 +242,13 @@ ordered gallery examples.
 `InputSourceCard`, `IrRackCard`, `AnalysisPreviewCard`, `OutputCard`, and
 `ExportMixedIrCard` consume borrowed views and return typed actions; the caller
 owns selections, transport, and side effects. Give each card instance a stable
-ID. `IrRackCard` and `AnalysisPreviewCard` are wide components with a 640-point
-minimum; the remaining cards support widths of 280 points and above (300 by
-default). The analysis card owns presentation only: its traces, waveform, status,
-active tab, view mode, and smoothing selection come from the caller. The Cards
-gallery applies these actions to independent dummy states. In particular,
+ID. Cards accept widths of 280 points and above. At narrow page widths, the
+application preserves a useful rack/analysis content width inside horizontal
+scrolling rather than imposing that minimum inside the reusable card itself.
+The remaining cards default to 300 points. The analysis card owns presentation
+only: its traces, waveform, status, active tab, view mode, and smoothing
+selection come from the caller. The Cards gallery applies these actions to
+independent dummy states. In particular,
 choosing an output device, choosing an export destination, and exporting are
 intentions only; the components never access devices or files.
 
@@ -267,5 +272,6 @@ cargo test -p ir-ui
 ```
 
 The gallery remains intentionally limited to isolated components. The complete
-page is implemented by `ir_ui::app::AppPage`, driven by `ir_app::AppSnapshot`
-and `AppCommand`. DSP and native I/O remain outside both UI layers.
+page reference is `ir_ui::app::AppPage`, driven by `ir_app::AppSnapshot` and
+`AppCommand`; it can use either the deterministic mock backend or the native
+backend. DSP and native I/O remain outside both UI layers.

@@ -1,118 +1,79 @@
 # IR Mixer Pro
 
-IR Mixer Pro is a Rust desktop application and audio plugin for loading,
-blending, previewing, analyzing, and exporting guitar cabinet impulse responses.
+IR Mixer Pro is a Rust application for loading, blending, monitoring, analyzing,
+and exporting guitar cabinet impulse responses. The product targets a shared
+standalone, VST3, and CLAP workflow built on one application model, DSP engine,
+and UI.
 
-The native standalone backend, shared partitioned-convolution engine, WAV
-loading, preview playback, analysis, presets, and mixed-IR export are
-implemented. The reusable mock backend remains available for UI development.
-VST3 and CLAP adapters are the next product milestone.
+The Windows standalone host is the current executable implementation. It
+supports preview-file playback, live audio input, partitioned convolution,
+multi-IR mixing, analysis, presets, and mixed-IR WAV export. VST3 and CLAP host
+adapters remain part of the first-release roadmap and are not shipped by the
+current build.
 
-![Approved IR Mixer Pro interface](design/mockups/main-screen-v4.png)
+![Current IR Mixer Pro interface](docs/screenshots/app.png)
 
-## Run the native application
+## Quick start
+
+Run the native standalone application:
 
 ```powershell
-cargo run
+cargo run --release
 ```
 
-Audio streams open when live monitoring or preview playback starts. IR loading,
-resampling, FFT preparation, analysis, preset I/O, and export run outside the
-audio callback.
+Release mode is strongly recommended for audio testing. Debug builds may not
+process small device buffers quickly enough and can sound glitchy even when the
+DSP behavior is otherwise correct.
 
-## Run with the mock backend
+Run the deterministic mock backend without opening audio devices or files:
 
 ```powershell
 $env:IR_MIXER_MOCK = "1"
 cargo run
 ```
 
-The mock backend exercises the interface without opening files or devices.
-
-## Run the component gallery
-
-Install the current stable Rust toolchain, open a terminal in the repository
-root, and run:
+Run the component gallery:
 
 ```powershell
 cargo run -p ir-ui-gallery
 ```
 
-The gallery is the executable reference for colors, typography, buttons,
-checkboxes, dropdown and list selectors, toggles, value controls, waveforms,
-meters, graphs, and component states. Its icon-only actions include both
-outlined and borderless variants.
+See the [development guide](docs/development.md) for toolchain setup, checks,
+snapshots, and common diagnostics.
 
-The **Cards** tab shows Input Source (Preview and Live), a scrollable multi-IR
-rack, Analysis & Preview, Output, and Export Mixed IR cards. Controls update
-dummy gallery state; Browse cycles example filenames and Play advances a
-simulated clock. The Output meter is animated; device, file, and export actions
-are only simulated—no audio devices or files are opened.
+## Documentation
 
-## Development checks
-
-Run the full workspace test suite:
-
-```powershell
-cargo test --workspace
-```
-
-Run formatting and lint checks:
-
-```powershell
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-## Production build
-
-The supported MVP shipping target is the Windows x64 standalone application.
-The release build has the product title and taskbar/Alt-Tab icon configured and
-does not open a console window.
-
-```powershell
-.\tools\build-release.ps1
-```
-
-The script runs the release checks, builds the optimized executable, and creates
-a versioned ZIP plus a SHA-256 checksum under `dist\`. See the
-[build and release guide](docs/build-and-release.md) for prerequisites, manual
-commands, signing, smoke testing, and current plugin-format status.
-
-Visual regression baselines live in `crates/ir-ui/tests/snapshots`. Update them
-only after reviewing the rendered changes:
-
-```powershell
-$env:UPDATE_SNAPSHOTS = "force"
-cargo test -p ir-ui
-```
+- [Product specification](docs/product-spec.md) — normative multi-format product requirements
+- [Architecture](docs/architecture.md) — current workspace, data flow, threading, and extension points
+- [Audio processing](docs/audio-processing.md) — sample rates, IR preparation, monitoring, and export fidelity
+- [Development](docs/development.md) — running, testing, visual regression, and troubleshooting
+- [Build and release](docs/build-and-release.md) — packaging, signing, and release gates
+- [Roadmap](docs/roadmap.md) — remaining first-release and post-release work
+- [UI design](design/ui-design.md) — implemented application layout and interaction contract
+- [UI design system](design/ui-design-system.md) — visual tokens and reusable component rules
 
 ## Repository layout
 
 ```text
-crates/ir-app/      Serializable application state, commands, and mock backend
-crates/ir-core/     WAV handling, resampling, offline transforms, and analysis
-crates/ir-dsp/      Partitioned convolution and real-time mix engine
-crates/ir-native/   CPAL host, workers, persistence, and native backend
-crates/ir-ui/       Reusable theme, widgets, cards, and complete application page
-tools/ui-gallery/   Native Storybook-style component gallery
-docs/               Product, architecture, and release documentation
-design/             UI specifications, mockups, and product artwork
-src/main.rs         Native standalone application launcher
+src/                 Native standalone launcher
+crates/ir-app/       Serializable state, commands, backend contract, and mock backend
+crates/ir-core/      WAV I/O, audio buffers, resampling, analysis, and offline export
+crates/ir-dsp/       Partitioned convolution and real-time mix engine
+crates/ir-native/    CPAL host, workers, dialogs, presets, and native backend
+crates/ir-ui/        Theme, widgets, cards, application page, and visual tests
+tools/ui-gallery/    Interactive component and card gallery
+tools/               Release packaging scripts
+docs/                Product, engineering, and release documentation
+design/              Current UI contract, visual tokens, artwork, and historical mockups
+samples/             Development preview and IR WAV files
 ```
 
-Start with these documents:
+## Product targets
 
-- [Product specification](docs/product-spec.md)
-- [Architecture](docs/architecture.md)
-- [UI design](design/ui-design.md)
-- [UI design system](design/ui-design-system.md)
-
-## Planned product targets
-
-- Standalone desktop application
+- Windows standalone application
 - VST3 plugin
 - CLAP plugin
 
-All targets share the same application model, DSP engine, and UI component
-library where host constraints allow it.
+The standalone application owns device routing. Plugin builds will receive
+audio configuration from the host and reuse the shared state, DSP, UI, preset,
+analysis, and export layers.
