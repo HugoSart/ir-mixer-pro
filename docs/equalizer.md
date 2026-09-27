@@ -30,12 +30,11 @@ Each IR slot stores:
 
 The project model does not impose a fixed number of bands. The prepared
 real-time representation contains the finite band list for the current project;
-adding, removing, duplicating, or reordering bands prepares replacement DSP
-state outside the audio callback.
+adding or removing a band prepares replacement DSP state outside the audio
+callback.
 
-Stable band IDs survive reorder operations and preset round trips. Display
-positions are not identities. Reordering changes the stored cascade order and
-must not recreate unrelated band IDs.
+Stable band IDs survive preset round trips. Graph-node positions and display
+order are not identities; selection and mutations address bands by stable ID.
 
 ### Filter shapes
 
@@ -57,9 +56,9 @@ coefficient generation; they must never introduce non-finite audio.
 
 The equalizer supports:
 
-- Add, remove, duplicate, and reorder bands
+- Create a Bell band from empty graph space at the chosen frequency and gain
+- Change a selected band's shape or delete it from its graph-node context menu
 - Enable or bypass an individual band without discarding its settings
-- Reset an individual band to a neutral default for its shape
 - Bypass the complete EQ for original/EQ comparison
 - Reset the complete EQ to an empty chain with unity output gain
 - Copy the complete EQ chain and paste it onto another IR
@@ -77,9 +76,11 @@ pane does not discard them.
 
 The pane uses the standard [`SlidingPane`](../design/ui-design-system.md#52-sliding-panes)
 contract. Its explicit bounds cover the application body while leaving the
-persistent top and status bars visible. It uses the standard 460-point width and
-240 ms cubic-out opening and closing animation. The header remains fixed while
-the EQ content scrolls vertically.
+persistent top and status bars visible. The EQ pane overrides the standard pane
+width with `min(920 points, available body width)`: it remains 920 points wide
+when the body permits and shrinks to fit smaller windows without horizontal
+overflow. Opening and closing retain the standard 240 ms cubic-out animation.
+The header remains fixed while the EQ content scrolls vertically.
 
 The pane closes from its header close button, Escape, or a click on the scrim.
 Its content remains mounted throughout the closing animation and pane-specific
@@ -91,25 +92,58 @@ The pane contains:
 - The IR filename, identity color, and native WAV metadata
 - Complete-EQ bypass and EQ output-gain controls
 - An interactive logarithmic-frequency response graph
-- An ordered, scrollable band list with shape-specific controls
-- Add, duplicate, reorder, remove, enable/bypass, and reset actions
+- One selected-band strip with Enabled, shape, frequency, gain when applicable,
+  and Q/slope controls
+- Short interaction guidance for graph selection, dragging, scrolling, and
+  context menus
 - Processed peak/headroom information and an explicit clipping warning
 - Reset-all and copy/paste-chain actions
 
-Selecting a graph node selects its band row, and selecting a band row highlights
-its graph node. The graph displays the original IR response, processed IR
-response, and combined EQ transfer curve. It uses the IR's stable identity color
-without treating that color as a warning or status.
+The graph is the primary band editor:
+
+- Clicking a node selects that band.
+- Ordinary dragging changes frequency and gain together. For high-pass,
+  low-pass, and notch bands, which have no gain parameter, vertical movement is
+  ignored.
+- Shift plus a predominantly horizontal drag changes frequency only. Shift plus
+  a predominantly vertical drag changes gain only. This axis lock is specific to
+  the EQ graph and overrides the general Shift fine-adjustment convention.
+- The mouse wheel over a node changes Q/slope. Shift plus the mouse wheel changes
+  gain in 0.1 dB steps. The gain gesture has no effect on high-pass, low-pass,
+  or notch bands.
+- Node wheel input is consumed so it does not scroll the sliding pane.
+- Right-clicking a node opens a context menu containing the six supported filter
+  shapes and Delete.
+- Right-clicking empty graph space immediately creates and selects a Bell band
+  at the clicked frequency and gain with Q 1.0.
+
+Frequency follows the graph's logarithmic axis. Gain follows its dB axis. All
+gestures update the curve, selected-band strip, monitoring parameters, and
+background analysis request continuously while remaining safely constrained to
+valid parameter and Nyquist limits.
+
+The selected-band strip edits only the current graph selection. It contains an
+Enabled checkbox, shape selector, frequency, gain when applicable, and Q/slope.
+When no band is selected, every field displays `None`, uses the disabled visual
+treatment, and rejects mouse and keyboard interaction. There is no stacked band
+list, Add Band button, band reorder, duplicate-band action, individual-band
+reset action, or delete icon in the strip.
+
+The graph displays the original IR response, processed IR response, and combined
+EQ transfer curve. It uses the IR's stable identity color without treating that
+color as a warning or status. Selected nodes use the application focus accent;
+bypassed nodes remain visible and selectable but are muted and do not contribute
+to the combined curve or audio.
 
 Complete-EQ bypass is the original/EQ comparison control. Transitions must be
 click-free. There is no automatic level matching: EQ output gain is an explicit
 user control, and rack level remains a separate mix control.
 
 The component gallery must include deterministic equalizer-pane state using
-`SlidingPane` and exercise adding, duplicating, removing, reordering, selecting,
-changing shape,
-bypassing, resetting, and copying/pasting bands. The production pane remains a
-controlled UI surface driven by application snapshots and typed commands.
+`SlidingPane` and exercise graph creation, selection, dragging, axis locking,
+wheel editing, context-menu type changes and deletion, bypass, empty selection,
+reset-all, and chain copy/paste. The production pane remains a controlled UI
+surface driven by application snapshots and typed commands.
 
 ## Processing contract
 
@@ -133,7 +167,7 @@ shapes. Coefficients and replacement filter banks are prepared and validated
 outside the callback. The audio callback must not allocate, deallocate, block,
 lock a mutex, access the filesystem, or evaluate unbounded coefficient-design
 work. Parameter and topology changes are smoothed or crossfaded so that adding,
-removing, bypassing, reordering, or retuning a band does not click.
+removing, bypassing, changing shape, or retuning a band does not click.
 
 Ordinary EQ changes do not rebuild partitioned convolution state. The immutable
 native-rate decoded IR remains the source of truth for later monitoring-rate
@@ -189,14 +223,19 @@ persistence is required regardless of automation exposure.
 - A new or migrated IR with no bands is sample-equivalent to the pre-EQ path.
 - Every supported shape produces finite, sample-rate-correct coefficients and
   the expected magnitude response.
-- Band reorder, duplication, removal, bypass, reset, and copy/paste preserve the
-  documented stable-ID behavior.
+- Graph creation, selection, drag, wheel, type change, deletion, bypass,
+  reset-all, and copy/paste preserve the documented stable-ID behavior.
 - Warmed-up processing performs no heap operations on the audio callback.
 - Mono and stereo processing preserve channel topology and independent state.
 - Parameter, bypass, and topology changes are free of audible discontinuities.
 - Monitoring, background analysis, and mixed export agree within documented
   floating-point and finite-tail tolerances.
 - Preset migration and round trips preserve all EQ state and missing-file slots.
+- The pane is 920 points wide when space permits and shrinks to the available
+  body width at smaller supported window sizes.
+- Graph and selected-strip interaction tests cover normal drag, Shift axis lock,
+  wheel consumption, Shift-wheel gain steps, context menus, no-gain shapes, and
+  the disabled no-selection state.
 - Pane opening, closing, dismissal, interaction, and visual snapshots cover
   supported layouts and DPI scales, with keyboard and accessibility behavior
   matching the design system.

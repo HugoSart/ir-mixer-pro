@@ -94,15 +94,18 @@ to simultaneously enabled real-time convolvers.
 
 Every IR supports a non-destructive parametric equalizer with an ordered dynamic
 band list. Bands support bell, low-shelf, high-shelf, notch, high-pass, and
-low-pass shapes. Users can add, remove, duplicate, reorder, enable/bypass, and
-reset bands; bypass the complete EQ; adjust explicit EQ output gain; and copy an
-EQ chain between IRs.
+low-pass shapes. Users create bands by right-clicking the response graph, select
+and drag graph nodes to edit them, change shape or delete from a node context
+menu, enable/bypass bands, bypass the complete EQ, adjust explicit EQ output
+gain, reset the chain, and copy an EQ chain between IRs.
 
 The equalizer opens in a right-edge sliding pane with an interactive response
-graph, band controls, original/EQ comparison, and peak/headroom feedback. The
-pane overlays the application body while leaving persistent application bars
-visible. A new or migrated IR has an empty transparent EQ chain and unity EQ
-output gain. EQ never normalizes or compensates gain implicitly.
+graph, one selected-band value strip, original/EQ comparison, and peak/headroom
+feedback. Its width is 920 points when space permits and otherwise shrinks to
+the available application body. The pane overlays the body while leaving
+persistent application bars visible. A new or migrated IR has an empty
+transparent EQ chain and unity EQ output gain. EQ never normalizes or compensates
+gain implicitly.
 
 Equalizer state must affect preview, live monitoring, analysis, presets, plugin
 session state, and mixed-IR export consistently. Detailed behavior is specified

@@ -128,6 +128,7 @@ Use a four-point grid: `4`, `8`, `12`, `16`, `24`, and `32`.
 | `radius.card` | 8 | Panels and cards |
 | `radius.dialog` | 10 | Dialogs and floating surfaces |
 | `sliding_pane.width` | 460 | Default right-edge pane width |
+| `equalizer_pane.width` | 920 | EQ target width, clamped to its body bounds |
 | `sliding_pane.animation_time` | 240 ms | Opening and closing travel time |
 
 Borders are one logical pixel. Selected controls may add a one-pixel accent border
@@ -146,7 +147,8 @@ floating menus: black at 28% opacity, blur 16, vertical offset 6.
   activation, and retain an accessible label for the operation.
 - Destructive: remain neutral until confirmation unless the action is immediately
   destructive; include a text label or recognizable icon.
-- Fine adjustment: Shift + drag uses one tenth of normal sensitivity.
+- Fine adjustment: Shift + drag uses one tenth of normal sensitivity except in
+  the EQ graph, where Shift locks editing to the dominant drag axis.
 - Knobs: while hovered, mouse-wheel up increases the value by 0.01 and
   mouse-wheel down decreases it by 0.01. The knob consumes that wheel input so
   a containing rack does not scroll at the same time.
@@ -212,8 +214,23 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
   after the pane has moved fully outside its bounds.
 - Opening and closing use a 240 ms cubic-out curve. The scrim opacity follows
   the same progress so it never remains after the pane is destroyed.
+- The equalizer overrides the default width with
+  `min(equalizer_pane.width, available body width)`. It never introduces
+  horizontal overflow at the minimum supported window size.
 
 ## 6. Audio Visuals
+
+- The equalizer response graph is directly editable. Nodes use click selection,
+  two-axis drag for frequency/gain, Shift axis locking, wheel Q/slope changes,
+  Shift-wheel 0.1 dB gain steps, and right-click context menus. Wheel and context
+  interactions are consumed so the containing pane does not scroll or dismiss.
+- High-pass, low-pass, and notch nodes ignore gain gestures. Disabled nodes stay
+  visible and selectable with muted styling but do not affect the combined
+  curve. A selected node uses the application focus accent.
+- The graph and selected-band value strip expose corresponding accessibility
+  labels and values. The graph context menu must be keyboard-invocable, while
+  the strip supplies direct keyboard editing. With no selection the strip reads
+  `None`, uses disabled styling, and rejects interaction.
 
 - Waveforms use their IR identity color over `surface.inset`, with a subtle center
   line and no glow wider than two pixels.

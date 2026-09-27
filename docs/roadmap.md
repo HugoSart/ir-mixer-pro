@@ -20,11 +20,15 @@ The equalizer is the next implementation milestone and a first-release
 requirement. Its product and processing contract is defined in
 [equalizer.md](equalizer.md).
 
-- Add a dedicated right-edge equalizer sliding pane for the selected IR.
+- Add a responsive right-edge equalizer pane targeting 920 points and shrinking
+  to the available body width on smaller windows.
 - Support an ordered dynamic band list with bell, shelf, notch, high-pass, and
   low-pass shapes.
-- Add complete-EQ and per-band bypass, EQ output gain, response visualization,
-  headroom feedback, reset, duplication, reorder, and copy/paste workflows.
+- Make the response graph the primary editor with node dragging, Shift axis
+  lock, wheel Q/gain editing, and context-menu creation, type changes, and
+  deletion.
+- Add one selected-band value strip, complete-EQ and per-band bypass, EQ output
+  gain, headroom feedback, reset-all, and copy/paste workflows.
 - Persist EQ state in presets and future plugin sessions with schema migration.
 - Apply equivalent EQ behavior to monitoring, analysis, and mixed-IR export.
 - Keep coefficient preparation and topology changes outside the audio callback,
