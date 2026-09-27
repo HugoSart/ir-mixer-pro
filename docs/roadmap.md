@@ -20,7 +20,7 @@ The equalizer is the next implementation milestone and a first-release
 requirement. Its product and processing contract is defined in
 [equalizer.md](equalizer.md).
 
-- Add a dedicated equalizer dialog for the selected IR.
+- Add a dedicated right-edge equalizer sliding pane for the selected IR.
 - Support an ordered dynamic band list with bell, shelf, notch, high-pass, and
   low-pass shapes.
 - Add complete-EQ and per-band bypass, EQ output gain, response visualization,
@@ -29,8 +29,9 @@ requirement. Its product and processing contract is defined in
 - Apply equivalent EQ behavior to monitoring, analysis, and mixed-IR export.
 - Keep coefficient preparation and topology changes outside the audio callback,
   with click-free real-time transitions and allocation-free warmed-up processing.
-- Add deterministic component-gallery coverage, interaction tests, DSP tests,
-  state round trips, analysis/export parity tests, and reviewed UI snapshots.
+- Add deterministic equalizer-pane gallery coverage, sliding-pane interaction
+  tests, DSP tests, state round trips, analysis/export parity tests, and reviewed
+  UI snapshots.
 
 ## VST3 and CLAP adapters
 

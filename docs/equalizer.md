@@ -68,14 +68,25 @@ Pasting creates new stable band IDs for the destination IR. It does not copy the
 source IR identity, rack gain, delay, pan, polarity, normalization, mute, solo,
 or enabled state.
 
-## Equalizer dialog
+## Equalizer sliding pane
 
-The rack remains compact. An EQ action on an IR row opens a dedicated editor
-dialog for that slot. Only one IR equalizer is edited in the dialog at a time.
+The rack remains compact. An EQ action on an IR row opens a right-edge sliding
+pane for that slot. Only one IR equalizer is edited in the pane at a time.
 Parameter changes update project state and audition immediately; closing the
-dialog does not discard them.
+pane does not discard them.
 
-The dialog contains:
+The pane uses the standard [`SlidingPane`](../design/ui-design-system.md#52-sliding-panes)
+contract. Its explicit bounds cover the application body while leaving the
+persistent top and status bars visible. It uses the standard 460-point width and
+240 ms cubic-out opening and closing animation. The header remains fixed while
+the EQ content scrolls vertically.
+
+The pane closes from its header close button, Escape, or a click on the scrim.
+Its content remains mounted throughout the closing animation and pane-specific
+state is released only after `fully_closed` becomes true. Closing is not a
+cancel operation because every edit has already been applied to project state.
+
+The pane contains:
 
 - The IR filename, identity color, and native WAV metadata
 - Complete-EQ bypass and EQ output-gain controls
@@ -94,10 +105,11 @@ Complete-EQ bypass is the original/EQ comparison control. Transitions must be
 click-free. There is no automatic level matching: EQ output gain is an explicit
 user control, and rack level remains a separate mix control.
 
-The component gallery must include deterministic equalizer-dialog state and
-exercise adding, duplicating, removing, reordering, selecting, changing shape,
-bypassing, resetting, and copying/pasting bands. The production dialog remains
-a controlled UI surface driven by application snapshots and typed commands.
+The component gallery must include deterministic equalizer-pane state using
+`SlidingPane` and exercise adding, duplicating, removing, reordering, selecting,
+changing shape,
+bypassing, resetting, and copying/pasting bands. The production pane remains a
+controlled UI surface driven by application snapshots and typed commands.
 
 ## Processing contract
 
@@ -128,7 +140,7 @@ native-rate decoded IR remains the source of truth for later monitoring-rate
 changes, analysis, and export.
 
 No stage applies implicit normalization, automatic gain compensation, or
-limiting. The dialog reports processed peak and headroom. Existing monitoring
+limiting. The pane reports processed peak and headroom. Existing monitoring
 limiting and export clipping rules remain unchanged.
 
 ## Analysis and export parity
@@ -185,8 +197,9 @@ persistence is required regardless of automation exposure.
 - Monitoring, background analysis, and mixed export agree within documented
   floating-point and finite-tail tolerances.
 - Preset migration and round trips preserve all EQ state and missing-file slots.
-- Dialog interaction and visual snapshots cover supported layouts and DPI
-  scales, with keyboard and accessibility behavior matching the design system.
+- Pane opening, closing, dismissal, interaction, and visual snapshots cover
+  supported layouts and DPI scales, with keyboard and accessibility behavior
+  matching the design system.
 
 ## Explicit exclusions
 
@@ -198,4 +211,3 @@ persistence is required regardless of automation exposure.
 - Target-curve matching or batch editing
 - Single edited-IR export
 - General editor undo/redo
-

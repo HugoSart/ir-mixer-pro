@@ -184,10 +184,12 @@ boundary. Parameter and topology changes must be smoothed or crossfaded without
 rebuilding convolution state. Stereo channels share controls but retain
 independent filter history.
 
-The dedicated equalizer dialog will remain a controlled UI surface driven by
-`AppSnapshot` and typed `AppCommand` values. Its deterministic component-gallery
-state will exercise dynamic-band operations without performing DSP or file I/O.
-See [equalizer.md](equalizer.md) for the full product, UI, state, and processing
+The equalizer will use the existing right-edge `SlidingPane` over the application
+body, leaving persistent application bars visible. It will remain a controlled
+UI surface driven by `AppSnapshot` and typed `AppCommand` values. Its
+deterministic component-gallery state will exercise pane lifecycle and
+dynamic-band operations without performing DSP or file I/O. See
+[equalizer.md](equalizer.md) for the full product, UI, state, and processing
 contract.
 
 ## Analysis
