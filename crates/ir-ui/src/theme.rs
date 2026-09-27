@@ -56,6 +56,7 @@ pub struct Metrics {
     pub icon_default: f32,
     pub icon_large: f32,
     pub sliding_pane_width: f32,
+    pub equalizer_pane_width: f32,
     pub sliding_pane_animation_time: f32,
 }
 
@@ -108,6 +109,7 @@ impl Default for DesignSystem {
                 icon_default: 16.0,
                 icon_large: 20.0,
                 sliding_pane_width: 460.0,
+                equalizer_pane_width: 920.0,
                 sliding_pane_animation_time: 0.24,
             },
         }

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 ir-core = { path = "../ir-core" }
+ir-eq = { path = "../ir-eq" }
 rustfft.workspace = true
 thiserror.workspace = true
 

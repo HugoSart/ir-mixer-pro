@@ -7,15 +7,24 @@ use crate::{
         ContentStatusView, ExportMixedIrAction, ExportMixedIrCard, ExportMixedIrCardView,
         ExportStatusView, InputSourceAction, InputSourceCard, InputSourceCardView, IrRackAction,
         IrRackCard, IrRackCardView, IrRackSlotView, OutputAction, OutputCard, OutputCardView,
-        SourceMode as UiSourceMode, StatusBar, StatusBarView, TopBar, TopBarAction, TopBarView,
+        SlidingPane, SourceMode as UiSourceMode, StatusBar, StatusBarView, TopBar, TopBarAction, TopBarView,
         TransportState as UiTransportState,
     },
 };
-use egui::{ScrollArea, Ui};
+use egui::{Color32, Id, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, Vec2};
+use egui_lucide::Lucide;
 use ir_app::{
     AnalysisTab, AppCommand, AppSnapshot, Choice, ContentState, ExportState, FrontendMode, IrId,
-    SourceMode, TransportState, selected_id, selected_index,
+    EqBandId, EqShape, SourceMode, TransportState, selected_id, selected_index,
 };
+
+#[derive(Clone, Copy, Debug, Default)]
+struct EqPaneUiState {
+    open: bool,
+    ir_id: Option<IrId>,
+}
+
+const EQ_PANE_STATE_ID: &str = "application_equalizer_pane_state";
 
 #[derive(Clone, Copy, Debug)]
 pub struct AppLayoutConfig {
@@ -90,7 +99,7 @@ impl<'a> AppPage<'a> {
 
         let status_height = 34.0;
         let body_height = (ui.available_height() - status_height).max(300.0);
-        egui::Frame::new()
+        let body = egui::Frame::new()
             .fill(ds.colors.surface_canvas)
             .inner_margin(egui::Margin::same(self.layout.page_margin as i8))
             .show(ui, |ui| {
@@ -107,6 +116,7 @@ impl<'a> AppPage<'a> {
             .fill(ds.colors.surface_toolbar)
             .inner_margin(egui::Margin::symmetric(self.layout.page_margin as i8, 8))
             .show(ui, |ui| self.show_status_bar(ui));
+        commands.extend(self.show_equalizer_pane(ui, body.response.rect));
         if self.frontend_mode == FrontendMode::Standalone {
             crate::native_window::show_resize_handles(ui);
         }
@@ -357,7 +367,16 @@ impl<'a> AppPage<'a> {
             .show(ui)
             .inner
             .into_iter()
-            .map(map_rack_action)
+            .map(|action| {
+                if let IrRackAction::EditEqualizer { id } = action {
+                    ui.ctx().data_mut(|data| {
+                        data.insert_temp(Id::new(EQ_PANE_STATE_ID), EqPaneUiState { open: true, ir_id: Some(IrId(id)) });
+                    });
+                    AppCommand::SelectIr(IrId(id))
+                } else {
+                    map_rack_action(action)
+                }
+            })
             .collect()
     }
 
@@ -615,6 +634,7 @@ fn map_rack_action(action: IrRackAction) -> AppCommand {
         }
         IrRackAction::SetSolo { id, soloed } => AppCommand::SetIrSolo(IrId(id), soloed),
         IrRackAction::SetMute { id, muted } => AppCommand::SetIrMute(IrId(id), muted),
+        IrRackAction::EditEqualizer { id } => AppCommand::SelectIr(IrId(id)),
     }
 }
 

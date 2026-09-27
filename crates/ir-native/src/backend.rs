@@ -6,11 +6,11 @@ use crate::worker::{self, ExportSource, WorkerRequest, WorkerResult};
 use crossbeam_channel::{Receiver, Sender};
 use ir_app::{
     AnalysisTrace, AppCommand, AppSnapshot, AudioBackend, BackendEvent, Choice, ContentState,
-    ExportState, IrFileReference, IrId, IrSlotState, MockAudioBackend, OptionId, PresetDocument,
-    SourceMode, TransportState,
+    EqBand, EqBandId, EqualizerState, ExportState, IrFileReference, IrId, IrSlotState,
+    MockAudioBackend, OptionId, PresetDocument, SourceMode, TransportState,
 };
 use ir_core::{AudioBuffer, ExportChannels, RenderSettings, SampleRate, WavEncoding};
-use ir_dsp::{EngineConfig, SlotParameters};
+use ir_dsp::{EngineConfig, PreparedEqualizer, SlotParameters};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,6 +43,7 @@ pub struct NativeAudioBackend {
     analysis_in_flight: bool,
     preview_start_pending: bool,
     export_after_destination: bool,
+    eq_clipboard: Option<EqualizerState>,
 }
 
 impl Default for NativeAudioBackend {
@@ -160,6 +161,7 @@ impl Default for NativeAudioBackend {
             analysis_in_flight: false,
             preview_start_pending: false,
             export_after_destination: false,
+            eq_clipboard: None,
         }
     }
 }
@@ -274,6 +276,8 @@ impl NativeAudioBackend {
                 | StopPreview
                 | RestartPreview
                 | Export
+                | SelectEqBand(_, _)
+                | CopyEq(_)
         );
         match command {
             BrowsePreview => self.choose_preview(),
@@ -321,6 +325,44 @@ impl NativeAudioBackend {
             SetIrNormalize(id, value) => self.update_slot(id, |slot| slot.normalize = value),
             SetIrSolo(id, value) => self.update_slot(id, |slot| slot.soloed = value),
             SetIrMute(id, value) => self.update_slot(id, |slot| slot.muted = value),
+            SelectEqBand(id, band) => self.snapshot.selected_eq = band.map(|band| (id, band)),
+            AddEqBand(id, frequency, gain) => {
+                let at_capacity = self.snapshot.project.ir_slots.iter().find(|slot| slot.id == id).is_some_and(|slot| slot.equalizer.bands.len() >= ir_eq::MAX_BANDS);
+                if at_capacity {
+                    self.fail(format!("An IR equalizer supports at most {} bands", ir_eq::MAX_BANDS));
+                } else {
+                    let next = self.snapshot.project.ir_slots.iter().find(|slot| slot.id == id).and_then(|slot| slot.equalizer.bands.iter().map(|band| band.id.0).max()).unwrap_or(0) + 1;
+                    self.update_equalizer(id, |equalizer| equalizer.bands.push(EqBand::bell(EqBandId(next), frequency, gain)));
+                    self.snapshot.selected_eq = Some((id, EqBandId(next)));
+                }
+            }
+            RemoveEqBand(id, band) => {
+                self.update_equalizer(id, |equalizer| equalizer.bands.retain(|item| item.id != band));
+                if self.snapshot.selected_eq == Some((id, band)) { self.snapshot.selected_eq = None; }
+            }
+            SetEqBandEnabled(id, band, value) => self.update_eq_band(id, band, |item| item.enabled = value),
+            SetEqBandShape(id, band, value) => self.update_eq_band(id, band, |item| item.shape = value),
+            SetEqBandFrequency(id, band, value) => self.update_eq_band(id, band, |item| item.frequency_hz = value),
+            SetEqBandGain(id, band, value) => self.update_eq_band(id, band, |item| item.gain_db = value),
+            SetEqBandQ(id, band, value) => self.update_eq_band(id, band, |item| item.q = value),
+            SetEqBypassed(id, value) => self.update_equalizer(id, |equalizer| equalizer.bypassed = value),
+            SetEqOutputGainDb(id, value) => self.update_equalizer(id, |equalizer| equalizer.output_gain_db = value),
+            ResetEq(id) => {
+                self.update_equalizer(id, |equalizer| *equalizer = EqualizerState::default());
+                self.snapshot.selected_eq = None;
+            }
+            CopyEq(id) => {
+                self.eq_clipboard = self.snapshot.project.ir_slots.iter().find(|slot| slot.id == id).map(|slot| slot.equalizer.clone());
+                self.snapshot.eq_clipboard_available = self.eq_clipboard.is_some();
+            }
+            PasteEq(id) => {
+                if let Some(mut equalizer) = self.eq_clipboard.clone() {
+                    equalizer.bands.truncate(ir_eq::MAX_BANDS);
+                    for (index, band) in equalizer.bands.iter_mut().enumerate() { band.id = EqBandId(index as u64 + 1); }
+                    self.update_equalizer(id, |target| *target = equalizer);
+                    self.snapshot.selected_eq = None;
+                }
+            }
             NormalizeAllIrs => {
                 let ids: Vec<_> = self
                     .snapshot
@@ -565,11 +607,10 @@ impl NativeAudioBackend {
                         .is_none_or(|(prepared_generation, _)| *prepared_generation != generation)
             })
             .filter_map(|(id, source)| {
-                self.slot_params(*id)
-                    .map(|params| (*id, Arc::clone(source), params))
+                self.slot_params(*id).and_then(|params| self.snapshot.project.ir_slots.iter().find(|slot| slot.id == *id).map(|slot| (*id, Arc::clone(source), params, slot.equalizer.clone())))
             })
             .collect();
-        for (id, source, params) in jobs {
+        for (id, source, params, equalizer) in jobs {
             self.preparing_irs.insert(id);
             let _ = self.worker_tx.send(WorkerRequest::PrepareIr {
                 id,
@@ -577,6 +618,7 @@ impl NativeAudioBackend {
                 generation,
                 config,
                 params,
+                equalizer,
             });
         }
         if let Some(source) = &self.preview_audio
@@ -774,6 +816,7 @@ impl NativeAudioBackend {
             };
         }
         if let Some(params) = self.slot_params(id) {
+            let equalizer = self.snapshot.project.ir_slots.iter().find(|slot| slot.id == id).map(|slot| slot.equalizer.clone()).unwrap_or_default();
             self.preparing_irs.insert(id);
             let _ = self.worker_tx.send(WorkerRequest::LoadIr {
                 id,
@@ -781,6 +824,7 @@ impl NativeAudioBackend {
                 generation: self.engine_generation,
                 config: self.engine_config(),
                 params,
+                equalizer,
             });
         }
         id
@@ -799,6 +843,33 @@ impl NativeAudioBackend {
         if let Some(params) = self.slot_params(id) {
             self.send(RuntimeCommand::SetSlotParameters(id.0, params));
         }
+    }
+    fn update_equalizer(&mut self, id: IrId, update: impl FnOnce(&mut EqualizerState)) {
+        let state = self
+            .snapshot
+            .project
+            .ir_slots
+            .iter_mut()
+            .find(|slot| slot.id == id)
+            .map(|slot| {
+                update(&mut slot.equalizer);
+                slot.equalizer.sanitize();
+                slot.equalizer.clone()
+            });
+        if let Some(state) = state {
+            match PreparedEqualizer::new(&state, self.engine_config().sample_rate) {
+                Ok(equalizer) => self.send(RuntimeCommand::ReplaceSlotEqualizer(id.0, Box::new(equalizer))),
+                Err(error) => self.fail(error.to_string()),
+            }
+        }
+    }
+    fn update_eq_band(&mut self, id: IrId, band: EqBandId, update: impl FnOnce(&mut EqBand)) {
+        self.update_equalizer(id, |equalizer| {
+            if let Some(item) = equalizer.bands.iter_mut().find(|item| item.id == band) {
+                update(item);
+                item.sanitize();
+            }
+        });
     }
     fn slot_params(&self, id: IrId) -> Option<SlotParameters> {
         self.snapshot
@@ -1261,10 +1332,10 @@ impl NativeAudioBackend {
                     .filter_map(|slot| {
                         slot.file_path
                             .clone()
-                            .map(|path| (slot.id, path, params(slot)))
+                            .map(|path| (slot.id, path, params(slot), slot.equalizer.clone()))
                     })
                     .collect();
-                for (id, path, params) in slots {
+                for (id, path, params, equalizer) in slots {
                     self.preparing_irs.insert(id);
                     let _ = self.worker_tx.send(WorkerRequest::LoadIr {
                         id,
@@ -1272,6 +1343,7 @@ impl NativeAudioBackend {
                         generation: self.engine_generation,
                         config: self.engine_config(),
                         params,
+                        equalizer,
                     });
                 }
                 self.snapshot.status = "Preset loaded".into();
@@ -1320,6 +1392,7 @@ impl NativeAudioBackend {
                     color_index: Some(slot.color_index),
                     audio: Arc::clone(audio),
                     params: params(slot),
+                    equalizer: slot.equalizer.clone(),
                 })
             })
             .collect()
@@ -1405,6 +1478,17 @@ fn command_changes_analysis(command: &AppCommand) -> bool {
             | SetIrNormalize(_, _)
             | SetIrSolo(_, _)
             | SetIrMute(_, _)
+            | AddEqBand(_, _, _)
+            | RemoveEqBand(_, _)
+            | SetEqBandEnabled(_, _, _)
+            | SetEqBandShape(_, _, _)
+            | SetEqBandFrequency(_, _, _)
+            | SetEqBandGain(_, _, _)
+            | SetEqBandQ(_, _, _)
+            | SetEqBypassed(_, _)
+            | SetEqOutputGainDb(_, _)
+            | ResetEq(_)
+            | PasteEq(_)
             | SetOutputGainDb(_)
     )
 }
@@ -1519,6 +1603,7 @@ fn new_slot(id: IrId, path: &Path) -> IrSlotState {
         normalize: false,
         soloed: false,
         muted: false,
+        equalizer: ir_eq::EqualizerState::default(),
         load_state: ContentState::Loading {
             message: "Preparing IR".into(),
         },

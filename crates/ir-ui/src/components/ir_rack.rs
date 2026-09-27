@@ -56,6 +56,7 @@ pub enum IrRackAction {
     SetNormalize { id: u64, normalize: bool },
     SetSolo { id: u64, soloed: bool },
     SetMute { id: u64, muted: bool },
+    EditEqualizer { id: u64 },
 }
 
 /// A controlled, vertically scrollable rack for an arbitrary number of IRs.
@@ -470,6 +471,10 @@ fn row(
             return;
         }
         ui.menu_button("…", |ui| {
+            if ui.add(ActionButton::new("Edit equalizer")).clicked() {
+                a.push(IrRackAction::EditEqualizer { id });
+                ui.close();
+            }
             if ui
                 .add_enabled(position.index > 0, ActionButton::new("Move up"))
                 .clicked()

@@ -8,6 +8,7 @@ egui.workspace = true
 egui-lucide.workspace = true
 image.workspace = true
 ir-app = { path = "../ir-app" }
+ir-eq = { path = "../ir-eq" }
 raw-window-handle.workspace = true
 serde.workspace = true
 

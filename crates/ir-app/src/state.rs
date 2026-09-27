@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const PRESET_SCHEMA_VERSION: u32 = 3;
+pub const PRESET_SCHEMA_VERSION: u32 = 4;
 const BALANCE_SILENCE_DB: f32 = -144.0;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -105,6 +105,8 @@ pub struct IrSlotState {
     pub normalize: bool,
     pub soloed: bool,
     pub muted: bool,
+    #[serde(default)]
+    pub equalizer: ir_eq::EqualizerState,
     #[serde(skip)]
     pub load_state: ContentState,
     #[serde(skip)]
@@ -335,10 +337,20 @@ impl PresetDocument {
     pub fn migrate(mut self) -> Result<Self, PresetVersionError> {
         match self.schema_version {
             PRESET_SCHEMA_VERSION => Ok(self),
+            3 => {
+                for slot in &mut self.project.ir_slots {
+                    slot.equalizer = ir_eq::EqualizerState::default();
+                }
+                self.schema_version = PRESET_SCHEMA_VERSION;
+                Ok(self)
+            }
             2 => {
                 self.project.balance_mode = false;
                 for slot in &mut self.project.ir_slots {
                     slot.balance_percent = 0.0;
+                }
+                for slot in &mut self.project.ir_slots {
+                    slot.equalizer = ir_eq::EqualizerState::default();
                 }
                 self.schema_version = PRESET_SCHEMA_VERSION;
                 Ok(self)
@@ -354,6 +366,9 @@ impl PresetDocument {
                                 content_fingerprint: None,
                             });
                     }
+                }
+                for slot in &mut self.project.ir_slots {
+                    slot.equalizer = ir_eq::EqualizerState::default();
                 }
                 self.schema_version = PRESET_SCHEMA_VERSION;
                 Ok(self)
@@ -388,6 +403,7 @@ mod tests {
             normalize: false,
             soloed: false,
             muted: false,
+            equalizer: ir_eq::EqualizerState::default(),
             load_state: ContentState::Ready,
             waveform: Vec::new(),
         }
@@ -566,6 +582,8 @@ pub struct AppSnapshot {
     pub latency_ms: f32,
     pub status: String,
     pub status_is_error: bool,
+    pub selected_eq: Option<(IrId, ir_eq::EqBandId)>,
+    pub eq_clipboard_available: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -606,6 +624,19 @@ pub enum AppCommand {
     SetIrNormalize(IrId, bool),
     SetIrSolo(IrId, bool),
     SetIrMute(IrId, bool),
+    SelectEqBand(IrId, Option<ir_eq::EqBandId>),
+    AddEqBand(IrId, f32, f32),
+    RemoveEqBand(IrId, ir_eq::EqBandId),
+    SetEqBandEnabled(IrId, ir_eq::EqBandId, bool),
+    SetEqBandShape(IrId, ir_eq::EqBandId, ir_eq::EqShape),
+    SetEqBandFrequency(IrId, ir_eq::EqBandId, f32),
+    SetEqBandGain(IrId, ir_eq::EqBandId, f32),
+    SetEqBandQ(IrId, ir_eq::EqBandId, f32),
+    SetEqBypassed(IrId, bool),
+    SetEqOutputGainDb(IrId, f32),
+    ResetEq(IrId),
+    CopyEq(IrId),
+    PasteEq(IrId),
     SetAnalysisTab(AnalysisTab),
     SetAnalysisViewMode(OptionId),
     SetSmoothing(OptionId),

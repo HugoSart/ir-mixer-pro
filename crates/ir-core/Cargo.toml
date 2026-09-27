@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 hound.workspace = true
+ir-eq = { path = "../ir-eq" }
 serde.workspace = true
 thiserror.workspace = true
 rustfft.workspace = true

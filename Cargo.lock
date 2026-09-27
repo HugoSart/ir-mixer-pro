@@ -414,6 +414,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "biquad"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8dee8f423f64504139bdc53d7fbe6a1cd8eff4f354be3652e7cf26385c9f1cb4"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1722,6 +1731,7 @@ dependencies = [
 name = "ir-app"
 version = "0.1.0"
 dependencies = [
+ "ir-eq",
  "serde",
  "serde_json",
 ]
@@ -1731,6 +1741,7 @@ name = "ir-core"
 version = "0.1.0"
 dependencies = [
  "hound",
+ "ir-eq",
  "rustfft",
  "serde",
  "thiserror 2.0.20",
@@ -1741,7 +1752,17 @@ name = "ir-dsp"
 version = "0.1.0"
 dependencies = [
  "ir-core",
+ "ir-eq",
  "rustfft",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ir-eq"
+version = "0.1.0"
+dependencies = [
+ "biquad",
+ "serde",
  "thiserror 2.0.20",
 ]
 
@@ -1770,6 +1791,7 @@ dependencies = [
  "ir-app",
  "ir-core",
  "ir-dsp",
+ "ir-eq",
  "rfd",
  "rtrb",
  "serde_json",
@@ -1786,6 +1808,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "ir-app",
+ "ir-eq",
  "raw-window-handle",
  "serde",
  "windows-sys 0.61.2",

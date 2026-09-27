@@ -1,5 +1,6 @@
 use crate::{ConvolverError, PartitionedConvolver};
 use ir_core::{AudioBuffer, constant_power_pan, db_to_gain, gain_to_db};
+use ir_eq::{EqProcessor, EqualizerState};
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug)]
@@ -68,6 +69,29 @@ pub enum EngineError {
     BlockSize { expected: usize },
     #[error("unknown IR slot {0}")]
     UnknownSlot(u64),
+    #[error(transparent)]
+    Equalizer(#[from] ir_eq::EqError),
+}
+
+#[derive(Clone, Debug)]
+pub struct PreparedEqualizer {
+    processor: EqProcessor,
+    output_gain: f32,
+    bypassed: bool,
+}
+
+impl PreparedEqualizer {
+    pub fn new(state: &EqualizerState, sample_rate: u32) -> Result<Self, EngineError> {
+        Ok(Self {
+            processor: EqProcessor::prepare(state, sample_rate)?,
+            output_gain: db_to_gain(state.output_gain_db),
+            bypassed: state.bypassed,
+        })
+    }
+
+    fn seed_from(&mut self, previous: &Self) {
+        self.processor.seed_from(&previous.processor);
+    }
 }
 
 pub struct PreparedSlot {
@@ -81,6 +105,9 @@ pub struct PreparedSlot {
     pan_right: SmoothedValue,
     polarity: SmoothedValue,
     audible_mix: SmoothedValue,
+    equalizer: Box<PreparedEqualizer>,
+    eq_output_gain: SmoothedValue,
+    eq_bypass_mix: SmoothedValue,
     delay_left: DelayLine,
     delay_right: DelayLine,
     scratch_left: Vec<f32>,
@@ -93,6 +120,16 @@ impl PreparedSlot {
         audio: &AudioBuffer,
         config: EngineConfig,
         params: SlotParameters,
+    ) -> Result<Self, EngineError> {
+        Self::new_with_equalizer(id, audio, config, params, &EqualizerState::default())
+    }
+
+    pub fn new_with_equalizer(
+        id: u64,
+        audio: &AudioBuffer,
+        config: EngineConfig,
+        params: SlotParameters,
+        equalizer: &EqualizerState,
     ) -> Result<Self, EngineError> {
         if audio.sample_rate().0 != config.sample_rate {
             return Err(EngineError::SampleRate {
@@ -131,6 +168,9 @@ impl PreparedSlot {
                 },
                 smoothing,
             ),
+            equalizer: Box::new(PreparedEqualizer::new(equalizer, config.sample_rate)?),
+            eq_output_gain: SmoothedValue::new(db_to_gain(equalizer.output_gain_db), smoothing),
+            eq_bypass_mix: SmoothedValue::new(if equalizer.bypassed { 1.0 } else { 0.0 }, smoothing),
             delay_left: DelayLine::new(config.max_delay_samples, config.block_size, smoothing),
             delay_right: DelayLine::new(config.max_delay_samples, config.block_size, smoothing),
             scratch_left: vec![0.0; config.block_size],
@@ -139,6 +179,13 @@ impl PreparedSlot {
     }
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    fn replace_equalizer(&mut self, mut replacement: Box<PreparedEqualizer>) -> Box<PreparedEqualizer> {
+        replacement.seed_from(&self.equalizer);
+        self.eq_output_gain.set_target(replacement.output_gain);
+        self.eq_bypass_mix.set_target(if replacement.bypassed { 1.0 } else { 0.0 });
+        std::mem::replace(&mut self.equalizer, replacement)
     }
 }
 
@@ -219,6 +266,14 @@ impl DspEngine {
             .ok_or(EngineError::UnknownSlot(id))?;
         Ok(self.slots.remove(index))
     }
+    pub fn replace_slot_equalizer(
+        &mut self,
+        id: u64,
+        replacement: Box<PreparedEqualizer>,
+    ) -> Result<Box<PreparedEqualizer>, EngineError> {
+        let slot = self.slots.iter_mut().find(|slot| slot.id == id).ok_or(EngineError::UnknownSlot(id))?;
+        Ok(slot.replace_equalizer(replacement))
+    }
     pub fn set_slot_parameters(
         &mut self,
         id: u64,
@@ -294,6 +349,15 @@ impl DspEngine {
                 .process_block(input_left, &mut slot.scratch_left)?;
             slot.right
                 .process_block(input_right, &mut slot.scratch_right)?;
+            for index in 0..block {
+                let dry_left = slot.scratch_left[index];
+                let dry_right = slot.scratch_right[index];
+                let (wet_left, wet_right) = slot.equalizer.processor.process_stereo(dry_left, dry_right);
+                let gain = slot.eq_output_gain.next();
+                let bypass = slot.eq_bypass_mix.next();
+                slot.scratch_left[index] = wet_left * gain + (dry_left - wet_left * gain) * bypass;
+                slot.scratch_right[index] = wet_right * gain + (dry_right - wet_right * gain) * bypass;
+            }
             let delay = slot.params.delay_samples.min(self.config.max_delay_samples);
             for index in 0..block {
                 let mix = slot.audible_mix.next();

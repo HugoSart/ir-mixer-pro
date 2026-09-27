@@ -1,4 +1,5 @@
 use crate::{AudioBuffer, AudioBufferError, SampleRate, constant_power_pan, db_to_gain};
+use ir_eq::{EqProcessor, EqualizerState};
 use thiserror::Error;
 
 pub struct MixSource<'a> {
@@ -11,6 +12,7 @@ pub struct MixSource<'a> {
     pub pan: f32,
     pub polarity_inverted: bool,
     pub normalize: bool,
+    pub equalizer: &'a EqualizerState,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +37,8 @@ pub enum RenderError {
     Buffer(#[from] AudioBufferError),
     #[error("the mix contains no enabled impulse responses")]
     EmptyMix,
+    #[error(transparent)]
+    Equalizer(#[from] ir_eq::EqError),
 }
 
 pub fn render_mix(
@@ -54,6 +58,7 @@ pub fn render_mix(
     let mut natural_frames = 0;
     for source in active {
         let audio = source.audio.resample(settings.sample_rate)?;
+        let audio = apply_equalizer(&audio, source.equalizer)?;
         natural_frames = natural_frames.max(source.delay_samples + audio.frame_count());
         prepared.push((source, audio));
     }
@@ -104,6 +109,45 @@ pub fn render_mix(
     Ok(AudioBuffer::new(settings.sample_rate, channels)?)
 }
 
+fn apply_equalizer(audio: &AudioBuffer, state: &EqualizerState) -> Result<AudioBuffer, RenderError> {
+    if state.bypassed
+        || (state.bands.iter().all(|band| !band.enabled) && state.output_gain_db == 0.0)
+    {
+        return Ok(audio.clone());
+    }
+    let (source_left, source_right) = audio.to_stereo();
+    let mut processor = EqProcessor::prepare(state, audio.sample_rate().0)?;
+    let gain = db_to_gain(state.output_gain_db);
+    let reserve = audio.frame_count() + audio.sample_rate().0 as usize * 2;
+    let mut left = Vec::with_capacity(reserve);
+    let mut right = Vec::with_capacity(reserve);
+    for (&left_in, &right_in) in source_left.iter().zip(&source_right) {
+        let (left_out, right_out) = processor.process_stereo(left_in, right_in);
+        left.push(left_out * gain);
+        right.push(right_out * gain);
+    }
+    if !processor.is_empty() {
+        let threshold = db_to_gain(-120.0);
+        let mut quiet_frames = 0;
+        for _ in 0..audio.sample_rate().0 as usize * 2 {
+            let (left_out, right_out) = processor.process_stereo(0.0, 0.0);
+            let left_out = left_out * gain;
+            let right_out = right_out * gain;
+            left.push(left_out);
+            right.push(right_out);
+            if left_out.abs().max(right_out.abs()) < threshold {
+                quiet_frames += 1;
+                if quiet_frames >= 256 {
+                    break;
+                }
+            } else {
+                quiet_frames = 0;
+            }
+        }
+    }
+    Ok(AudioBuffer::stereo(audio.sample_rate(), left, right)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +155,7 @@ mod tests {
     #[test]
     fn render_applies_delay_polarity_and_mono_downmix() {
         let impulse = AudioBuffer::mono(SampleRate(48_000), vec![1.0, 0.5]);
+        let equalizer = EqualizerState::default();
         let source = MixSource {
             audio: &impulse,
             enabled: true,
@@ -121,6 +166,7 @@ mod tests {
             pan: 0.0,
             polarity_inverted: true,
             normalize: false,
+            equalizer: &equalizer,
         };
         let output = render_mix(
             &[source],
@@ -143,6 +189,7 @@ mod tests {
     fn render_honors_rate_length_stereo_and_final_normalization() {
         let impulse =
             AudioBuffer::stereo(SampleRate(24_000), vec![0.25, 0.125], vec![-0.5, -0.25]).unwrap();
+        let equalizer = EqualizerState::default();
         let source = MixSource {
             audio: &impulse,
             enabled: true,
@@ -153,6 +200,7 @@ mod tests {
             pan: 0.0,
             polarity_inverted: false,
             normalize: false,
+            equalizer: &equalizer,
         };
 
         let output = render_mix(
@@ -191,6 +239,7 @@ mod tests {
             normalize: false,
             normalization_target_dbfs: -1.0,
         };
+        let equalizer = EqualizerState::default();
         let source = |audio| MixSource {
             audio,
             enabled: true,
@@ -201,6 +250,7 @@ mod tests {
             pan: 0.0,
             polarity_inverted: false,
             normalize: false,
+            equalizer: &equalizer,
         };
 
         let high_only = render_mix(&[source(&high_rate)], settings).unwrap();

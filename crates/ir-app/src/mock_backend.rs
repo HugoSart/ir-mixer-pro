@@ -1,7 +1,8 @@
 use crate::{
     AnalysisState, AnalysisTab, AnalysisTrace, AppCommand, AppSnapshot, AudioBackend, BackendEvent,
-    Choice, ContentState, ExportSettings, ExportState, FileLoadActivity, IrId, IrSlotState,
-    OptionId, OutputState, ProjectState, SourceMode, SourceState, TransportState,
+    Choice, ContentState, EqBand, EqBandId, EqualizerState, ExportSettings, ExportState,
+    FileLoadActivity, IrId, IrSlotState, OptionId, OutputState, ProjectState, SourceMode,
+    SourceState, TransportState,
 };
 
 pub struct MockAudioBackend {
@@ -9,6 +10,7 @@ pub struct MockAudioBackend {
     events: Vec<BackendEvent>,
     last_update_seconds: Option<f64>,
     next_ir_id: u64,
+    eq_clipboard: Option<EqualizerState>,
 }
 
 impl Default for MockAudioBackend {
@@ -18,6 +20,7 @@ impl Default for MockAudioBackend {
             events: Vec::new(),
             last_update_seconds: None,
             next_ir_id: 7,
+            eq_clipboard: None,
         }
     }
 }
@@ -202,6 +205,40 @@ impl MockAudioBackend {
             SetIrNormalize(id, value) => self.with_slot(id, |slot| slot.normalize = value),
             SetIrSolo(id, value) => self.with_slot(id, |slot| slot.soloed = value),
             SetIrMute(id, value) => self.with_slot(id, |slot| slot.muted = value),
+            SelectEqBand(id, band) => self.snapshot.selected_eq = band.map(|band| (id, band)),
+            AddEqBand(id, frequency, gain) => {
+                if let Some(slot) = self.slot_mut(id) {
+                    if slot.equalizer.bands.len() < ir_eq::MAX_BANDS {
+                        let next = slot.equalizer.bands.iter().map(|band| band.id.0).max().unwrap_or(0) + 1;
+                        let band = EqBand::bell(EqBandId(next), frequency, gain);
+                        slot.equalizer.bands.push(band);
+                        self.snapshot.selected_eq = Some((id, EqBandId(next)));
+                    }
+                }
+            }
+            RemoveEqBand(id, band) => {
+                self.with_slot(id, |slot| slot.equalizer.bands.retain(|item| item.id != band));
+                if self.snapshot.selected_eq == Some((id, band)) { self.snapshot.selected_eq = None; }
+            }
+            SetEqBandEnabled(id, band, value) => self.with_eq_band(id, band, |item| item.enabled = value),
+            SetEqBandShape(id, band, value) => self.with_eq_band(id, band, |item| item.shape = value),
+            SetEqBandFrequency(id, band, value) => self.with_eq_band(id, band, |item| item.frequency_hz = value.clamp(ir_eq::MIN_FREQUENCY_HZ, ir_eq::MAX_FREQUENCY_HZ)),
+            SetEqBandGain(id, band, value) => self.with_eq_band(id, band, |item| item.gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)),
+            SetEqBandQ(id, band, value) => self.with_eq_band(id, band, |item| item.q = value.clamp(ir_eq::MIN_Q, ir_eq::MAX_Q)),
+            SetEqBypassed(id, value) => self.with_slot(id, |slot| slot.equalizer.bypassed = value),
+            SetEqOutputGainDb(id, value) => self.with_slot(id, |slot| slot.equalizer.output_gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)),
+            ResetEq(id) => self.with_slot(id, |slot| slot.equalizer = EqualizerState::default()),
+            CopyEq(id) => {
+                self.eq_clipboard = self.snapshot.project.ir_slots.iter().find(|slot| slot.id == id).map(|slot| slot.equalizer.clone());
+                self.snapshot.eq_clipboard_available = self.eq_clipboard.is_some();
+            }
+            PasteEq(id) => {
+                if let Some(mut equalizer) = self.eq_clipboard.clone() {
+                    for (index, band) in equalizer.bands.iter_mut().enumerate() { band.id = EqBandId(index as u64 + 1); }
+                    self.with_slot(id, |slot| slot.equalizer = equalizer);
+                    self.snapshot.selected_eq = None;
+                }
+            }
             SetAnalysisTab(tab) => self.snapshot.project.analysis.tab = tab,
             SetAnalysisViewMode(id) => self.snapshot.project.analysis.view_mode = id,
             SetSmoothing(id) => self.snapshot.project.analysis.smoothing = id,
@@ -232,6 +269,13 @@ impl MockAudioBackend {
         }
         if changes_analysis {
             refresh_mock_analysis(&mut self.snapshot);
+        }
+    }
+
+    fn with_eq_band(&mut self, id: IrId, band: EqBandId, update: impl FnOnce(&mut EqBand)) {
+        if let Some(item) = self.slot_mut(id).and_then(|slot| slot.equalizer.bands.iter_mut().find(|item| item.id == band)) {
+            update(item);
+            item.sanitize();
         }
     }
 
@@ -286,6 +330,8 @@ fn command_changes_project(command: &AppCommand) -> bool {
             | AppCommand::StopPreview
             | AppCommand::RestartPreview
             | AppCommand::Export
+            | AppCommand::SelectEqBand(_, _)
+            | AppCommand::CopyEq(_)
     )
 }
 
@@ -309,6 +355,17 @@ fn command_changes_analysis(command: &AppCommand) -> bool {
             | SetIrNormalize(_, _)
             | SetIrSolo(_, _)
             | SetIrMute(_, _)
+            | AddEqBand(_, _, _)
+            | RemoveEqBand(_, _)
+            | SetEqBandEnabled(_, _, _)
+            | SetEqBandShape(_, _, _)
+            | SetEqBandFrequency(_, _, _)
+            | SetEqBandGain(_, _, _)
+            | SetEqBandQ(_, _, _)
+            | SetEqBypassed(_, _)
+            | SetEqOutputGainDb(_, _)
+            | ResetEq(_)
+            | PasteEq(_)
             | SetOutputGainDb(_)
     )
 }
@@ -520,6 +577,8 @@ fn demo_snapshot() -> AppSnapshot {
         latency_ms: 5.3,
         status: "Audio Engine Running".into(),
         status_is_error: false,
+        selected_eq: None,
+        eq_clipboard_available: false,
     }
 }
 
@@ -554,6 +613,7 @@ fn demo_slot(id: u64, filename: &str, gain_db: f32, delay_samples: i32) -> IrSlo
         normalize: id <= 2,
         soloed: false,
         muted: false,
+        equalizer: EqualizerState::default(),
         load_state: ContentState::Ready,
         waveform: waveform(id as f32 * 0.71, 180),
     }

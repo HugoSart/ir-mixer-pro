@@ -14,6 +14,7 @@ pub(crate) struct ExportSource {
     pub color_index: Option<u8>,
     pub audio: Arc<AudioBuffer>,
     pub params: SlotParameters,
+    pub equalizer: ir_eq::EqualizerState,
 }
 
 pub(crate) enum WorkerRequest {
@@ -23,6 +24,7 @@ pub(crate) enum WorkerRequest {
         generation: u64,
         config: EngineConfig,
         params: SlotParameters,
+        equalizer: ir_eq::EqualizerState,
     },
     PrepareIr {
         id: IrId,
@@ -30,6 +32,7 @@ pub(crate) enum WorkerRequest {
         generation: u64,
         config: EngineConfig,
         params: SlotParameters,
+        equalizer: ir_eq::EqualizerState,
     },
     LoadPreview {
         path: PathBuf,
@@ -125,6 +128,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
             generation,
             config,
             params,
+            equalizer,
         } => match read_wav(&path) {
             Ok(source) => prepare(
                 id,
@@ -133,6 +137,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
                 generation,
                 config,
                 params,
+                equalizer,
                 results,
             ),
             Err(error) => {
@@ -149,6 +154,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
             generation,
             config,
             params,
+            equalizer,
         } => prepare(
             id,
             PathBuf::new(),
@@ -156,6 +162,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
             generation,
             config,
             params,
+            equalizer,
             results,
         ),
         WorkerRequest::LoadPreview {
@@ -194,6 +201,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
                     pan: source.params.pan,
                     polarity_inverted: source.params.polarity_inverted,
                     normalize: source.params.normalize,
+                    equalizer: &source.equalizer,
                 })
                 .collect();
             match render_mix(&borrowed, settings) {
@@ -337,6 +345,7 @@ fn render_sources(
             pan: source.params.pan,
             polarity_inverted: source.params.polarity_inverted,
             normalize: source.params.normalize,
+            equalizer: &source.equalizer,
         })
         .collect();
     render_mix(&borrowed, settings)
@@ -349,6 +358,7 @@ fn prepare(
     generation: u64,
     config: EngineConfig,
     params: SlotParameters,
+    equalizer: ir_eq::EqualizerState,
     results: &Sender<WorkerResult>,
 ) {
     let prepared_audio = match source.resample(SampleRate(config.sample_rate)) {
@@ -362,7 +372,7 @@ fn prepare(
             return;
         }
     };
-    match PreparedSlot::new(id.0, &prepared_audio, config, params) {
+    match PreparedSlot::new_with_equalizer(id.0, &prepared_audio, config, params, &equalizer) {
         Ok(prepared) => {
             let file_reference = if path.as_os_str().is_empty() {
                 None

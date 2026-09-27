@@ -18,7 +18,7 @@ nice-plug-egui.workspace = true
 image.workspace = true
 
 [workspace]
-members = ["crates/ir-app", "crates/ir-core", "crates/ir-dsp", "crates/ir-native", "crates/ir-ui", "tools/ui-gallery"]
+members = ["crates/ir-app", "crates/ir-core", "crates/ir-dsp", "crates/ir-eq", "crates/ir-native", "crates/ir-ui", "tools/ui-gallery"]
 resolver = "3"
 
 [profile.release]
@@ -44,3 +44,4 @@ crossbeam-channel = "0.5.15"
 rfd = "0.15.4"
 rtrb = "0.3.2"
 serde_json = "1.0"
+biquad = "0.6.0"

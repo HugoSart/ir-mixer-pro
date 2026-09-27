@@ -13,6 +13,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/ir-dsp/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ir-native/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ir-plugin/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ir-eq/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

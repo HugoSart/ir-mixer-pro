@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ir_core::{AudioBuffer, SampleRate, analyze_frequency_response};
-use ir_dsp::{DspEngine, EngineConfig, MeterSnapshot, PreparedSlot, SlotParameters};
+use ir_dsp::{DspEngine, EngineConfig, MeterSnapshot, PreparedEqualizer, PreparedSlot, SlotParameters};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::{
     Arc, Mutex,
@@ -130,6 +130,7 @@ pub enum RuntimeError {
 
 pub enum RuntimeCommand {
     ReplaceSlot(Box<PreparedSlot>),
+    ReplaceSlotEqualizer(u64, Box<PreparedEqualizer>),
     RemoveSlot(u64),
     SetSlotParameters(u64, SlotParameters),
     SetOutputGain(f32),
@@ -152,6 +153,7 @@ pub enum RuntimeCommand {
 
 enum Retired {
     Slot(Box<PreparedSlot>),
+    Equalizer(Box<PreparedEqualizer>),
     Preview(Box<AudioBuffer>),
 }
 
@@ -436,6 +438,7 @@ impl LocalAudioRuntime {
         while let Ok(retired) = self.retired.pop() {
             match retired {
                 Retired::Slot(slot) => drop(slot),
+                Retired::Equalizer(equalizer) => drop(equalizer),
                 Retired::Preview(preview) => drop(preview),
             }
         }
@@ -690,6 +693,11 @@ impl OutputProcessor {
                     .ok()
                     .flatten()
                     .map(Retired::Slot),
+                RuntimeCommand::ReplaceSlotEqualizer(id, equalizer) => self
+                    .engine
+                    .replace_slot_equalizer(id, equalizer)
+                    .ok()
+                    .map(Retired::Equalizer),
                 RuntimeCommand::RemoveSlot(id) => {
                     self.engine.remove_slot(id).ok().map(Retired::Slot)
                 }
