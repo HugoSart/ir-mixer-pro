@@ -1,0 +1,72 @@
+# IR Mixer Pro — Roadmap
+
+This roadmap organizes delivery work without serving as a field-by-field status
+matrix. The [product specification](product-spec.md) remains the normative
+first-release contract.
+
+## Shared standalone foundation
+
+The current foundation includes the shared project model and UI, native Windows
+standalone host, partitioned convolution, preview and live monitoring, native
+IR preservation, mixed-rate export, analysis, presets, component gallery, and
+visual regression coverage.
+
+Continue hardening this foundation as plugin work exposes host-specific block
+sizes, rates, lifecycle transitions, and state restoration cases.
+
+## VST3 and CLAP adapters
+
+These adapters are required to complete the multi-format first release:
+
+- Add a plugin crate and nice-plug VST3/CLAP entrypoints.
+- Map host sample rate, block size, process buffers, and lifecycle into the
+  shared engine without CPAL.
+- Define automatable parameters and stable IDs for practical mix controls.
+- Persist project state and IR references in host sessions.
+- Render `AppPage` in plugin mode with host-routing status.
+- Validate project reload, missing IRs, editor reopen, bypass, and export in
+  representative hosts.
+- Build and package VST3 and CLAP bundles alongside the standalone executable.
+
+## Release hardening
+
+- Derive the displayed application version from package/build metadata instead
+  of the current hardcoded UI label.
+- Make formatting and strict workspace Clippy checks clean; current known items
+  are `build.rs` formatting, `ir_rack.rs` argument count, and the conditional in
+  `widgets/value.rs`.
+- Add CI for formatting, Clippy, tests, release compilation, and artifact checks.
+- Choose and add the repository/distribution license before public packaging.
+- Extend release tooling to package and checksum standalone, VST3, and CLAP
+  artifacts as one release set.
+- Decide whether Settings is required for first release; implement it or remove
+  the inactive top-bar action.
+- Resolve the current “Spectrogram” label: rename it to Spectrum for the existing
+  trace or implement a true time-frequency spectrogram.
+- Complete clean-machine and multi-host smoke tests.
+- Add Authenticode signing and verify signatures before archive creation.
+
+## Interaction and workflow polish
+
+- Drag-and-drop IR reorder and multi-file/folder drop
+- Preview timeline seeking
+- Keyboard shortcuts and fuller keyboard navigation
+- Confirmation for destructive preset/rack operations where appropriate
+- IR relinking and configurable search roots for missing files
+- Clearer device-disconnect recovery and rescan behavior
+- Measured performance guidance for long room IRs and high sample rates
+
+## Post-release exploration
+
+- Automatic delay estimation and phase alignment
+- Correlation and alignment visualization
+- IR trim/crop and minimum-phase conversion
+- Searchable/tagged IR library
+- Snapshots and preset morphing
+- Batch export and built-in test signals
+- AIFF and FLAC preview/import
+- AU or AAX adapters
+- Optional amp or NAM processing before the IR stage
+
+Amp modeling, drive modeling, cloud sync, marketplace features, and mobile builds
+remain outside the first-release plan.
