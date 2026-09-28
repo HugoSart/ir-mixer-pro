@@ -225,8 +225,19 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
   Shift-wheel 0.1 dB gain steps, and right-click context menus. Wheel and context
   interactions are consumed so the containing pane does not scroll or dismiss.
 - High-pass, low-pass, and notch nodes ignore gain gestures. Disabled nodes stay
-  visible and selectable with muted styling but do not affect the combined
-  curve. A selected node uses the application focus accent.
+  visible and selectable with reduced type-color opacity but do not affect the
+  combined curve. Selection adds the application focus ring without replacing
+  the node's type color.
+- EQ nodes are large enough for centered two-character labels. Bell nodes are
+  blue and use their zero-based full-list position (`00`-`99`); low-shelf nodes
+  are cyan `LS`; high-shelf nodes are violet `HS`; notch nodes are red `NT`;
+  high-pass nodes are green `HP`; and low-pass nodes are yellow `LP`.
+- High-pass and low-pass cutoffs have a one-point dotted vertical guide spanning
+  the plot, using the node's type color at 10% opacity. Frequency and dB tick
+  labels occupy reserved graph gutters and must not be clipped.
+- The EQ curve is a filter-editing preview. It includes enabled bands while
+  ignoring complete-EQ bypass and EQ output gain; bypass and output gain retain
+  their normal audio, analysis, export, and headroom behavior.
 - The graph and selected-band value strip expose corresponding accessibility
   labels and values. The graph context menu must be keyboard-invocable, while
   the strip supplies direct keyboard editing. With no selection the strip reads

@@ -1,5 +1,5 @@
 use egui_kittest::{Harness, SnapshotResults, kittest::Queryable as _};
-use ir_app::{AppSnapshot, AudioBackend, FrontendMode, MockAudioBackend};
+use ir_app::{AppCommand, AppSnapshot, AudioBackend, FrontendMode, MockAudioBackend};
 use ir_ui::app::AppPage;
 
 struct PageState {
@@ -7,6 +7,7 @@ struct PageState {
     mode: FrontendMode,
     initialized: bool,
     open_equalizer: bool,
+    commands: Vec<AppCommand>,
 }
 
 fn page_harness(size: egui::Vec2, mode: FrontendMode) -> Harness<'static, PageState> {
@@ -38,15 +39,18 @@ fn page_harness_with_snapshot(
                 }
                 state.open_equalizer = false;
             }
-            AppPage::new(&state.snapshot)
-                .frontend_mode(state.mode)
-                .show(ui);
+            state.commands.extend(
+                AppPage::new(&state.snapshot)
+                    .frontend_mode(state.mode)
+                    .show(ui),
+            );
         },
         PageState {
             snapshot,
             mode,
             initialized: false,
             open_equalizer: false,
+            commands: Vec::new(),
         },
     )
 }
@@ -66,6 +70,91 @@ fn equalizer_pane_renders_the_graph_and_selected_band_contract() {
     harness.get_by_label("Copy");
     harness.get_by_label("Reset all");
     harness.snapshot("equalizer_pane_wide");
+}
+
+#[test]
+fn equalizer_nodes_handle_wheel_q_and_shift_wheel_gain() {
+    let backend = MockAudioBackend::default();
+    let snapshot = backend.snapshot().clone();
+    let mut harness = page_harness_with_snapshot(
+        egui::vec2(1536.0, 1024.0),
+        FrontendMode::Standalone,
+        snapshot,
+    );
+    harness.state_mut().open_equalizer = true;
+    harness.run();
+
+    let graph_rect = harness.get_by_label("Equalizer response graph").rect();
+    let plot_rect = egui::Rect::from_min_max(
+        graph_rect.min + egui::vec2(54.0, 34.0),
+        graph_rect.max - egui::vec2(14.0, 28.0),
+    );
+    let band_position = |band: &ir_app::EqBand| {
+        let frequency_t = (band.frequency_hz / ir_eq::MIN_FREQUENCY_HZ).ln()
+            / (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).ln();
+        let gain = if band.shape.has_gain() {
+            band.gain_db
+        } else {
+            0.0
+        };
+        egui::pos2(
+            egui::lerp(plot_rect.x_range(), frequency_t),
+            egui::lerp(plot_rect.y_range(), (12.0 - gain) / 24.0),
+        )
+    };
+    let (slot_id, high_pass_id, high_pass_q, high_pass_position, bell_id, bell_gain, bell_position) = {
+        let slot = &harness.state().snapshot.project.ir_slots[0];
+        let high_pass = &slot.equalizer.bands[0];
+        let bell = &slot.equalizer.bands[1];
+        (
+            slot.id,
+            high_pass.id,
+            high_pass.q,
+            band_position(high_pass),
+            bell.id,
+            bell.gain_db,
+            band_position(bell),
+        )
+    };
+
+    harness.event(egui::Event::PointerMoved(high_pass_position));
+    harness.run();
+    harness.state_mut().commands.clear();
+    harness.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 1.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::default(),
+    });
+    harness.run();
+    assert!(harness.state().commands.iter().any(|command| matches!(
+        command,
+        AppCommand::SetEqBandQ(ir_id, band_id, q)
+            if *ir_id == slot_id && *band_id == high_pass_id && *q > high_pass_q
+    )));
+
+    harness.event(egui::Event::PointerMoved(bell_position));
+    harness.run();
+    harness.state_mut().commands.clear();
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    harness.event_modifiers(
+        egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 1.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: shift,
+        },
+        shift,
+    );
+    harness.run();
+    assert!(harness.state().commands.iter().any(|command| matches!(
+        command,
+        AppCommand::SetEqBandGain(ir_id, band_id, gain)
+            if *ir_id == slot_id && *band_id == bell_id && *gain > bell_gain
+    )));
 }
 
 #[test]

@@ -134,15 +134,26 @@ treatment, and rejects mouse and keyboard interaction. There is no stacked band
 list, Add Band button, band reorder, duplicate-band action, individual-band
 reset action, or delete icon in the strip.
 
-The graph displays the original IR response, processed IR response, and combined
-EQ transfer curve. It uses the IR's stable identity color without treating that
-color as a warning or status. Selected nodes use the application focus accent;
-bypassed nodes remain visible and selectable but are muted and do not contribute
-to the combined curve or audio.
+The graph displays the EQ filter transfer as an editing preview on labeled
+20 Hz-20 kHz and -12 dB to +12 dB axes. The preview always shows the enabled
+band cascade: complete-EQ bypass does not flatten it and EQ output gain does not
+move it vertically. Those controls still affect auditioning, analysis, export,
+and headroom calculations according to the processing contract.
+
+Band nodes are colored and labeled by shape: Bell is blue and uses its
+zero-based position in the complete band list (`00`-`99`); low shelf is cyan
+`LS`; high shelf is violet `HS`; notch is red `NT`; high-pass is green `HP`;
+and low-pass is yellow `LP`. High-pass and low-pass nodes also draw a dotted
+full-height guide at their cutoff frequency in the node color at 10% opacity.
+Selection adds the application focus ring without replacing the shape color.
+Disabled nodes remain visible and selectable with reduced opacity but do not
+contribute to the preview curve or audio.
 
 Complete-EQ bypass is the original/EQ comparison control. Transitions must be
-click-free. There is no automatic level matching: EQ output gain is an explicit
-user control, and rack level remains a separate mix control.
+click-free, while the graph remains available for preview and editing. There is
+no automatic level matching: EQ output gain is an explicit user control, rack
+level remains a separate mix control, and neither changes the graph's vertical
+position.
 
 The component gallery must include deterministic equalizer-pane state using
 `SlidingPane` and exercise graph creation, selection, dragging, axis locking,

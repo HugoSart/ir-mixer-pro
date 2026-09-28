@@ -11,7 +11,7 @@ use crate::{
         TopBarView, TransportState as UiTransportState,
     },
 };
-use egui::{Id, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, Vec2};
+use egui::{Color32, Id, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, Vec2};
 use egui_lucide::Lucide;
 use ir_app::{
     AnalysisTab, AppCommand, AppSnapshot, Choice, ContentState, EqBandId, EqShape, ExportState,
@@ -738,7 +738,14 @@ fn show_eq_graph(
     let ds = DesignSystem::from_context(ui.ctx());
     let desired = Vec2::new(ui.available_width(), 360.0);
     let (rect, response) = ui.allocate_exact_size(desired, Sense::click_and_drag());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Equalizer response graph")
+    });
     let painter = ui.painter_at(rect);
+    let plot_rect = Rect::from_min_max(
+        rect.min + Vec2::new(54.0, 34.0),
+        rect.max - Vec2::new(14.0, 28.0),
+    );
     painter.rect_filled(rect, ds.metrics.radius_control, ds.colors.surface_inset);
     painter.rect_stroke(
         rect,
@@ -749,28 +756,49 @@ fn show_eq_graph(
     painter.text(
         rect.left_top() + Vec2::new(10.0, 8.0),
         egui::Align2::LEFT_TOP,
-        "Original reference",
-        crate::TextRole::GraphLabel.font_id(),
-        ds.colors.text_muted,
-    );
-    painter.text(
-        rect.left_top() + Vec2::new(112.0, 8.0),
-        egui::Align2::LEFT_TOP,
-        "Processed / EQ transfer",
+        "EQ filter preview",
         crate::TextRole::GraphLabel.font_id(),
         IR_COLORS[slot.color_index as usize % IR_COLORS.len()],
     );
 
-    for frequency in [
-        20.0, 50.0, 100.0, 200.0, 500.0, 1_000.0, 2_000.0, 5_000.0, 10_000.0, 20_000.0,
-    ] {
-        let x = eq_frequency_to_x(rect, frequency);
-        painter.vline(x, rect.y_range(), Stroke::new(1.0, ds.colors.border_subtle));
+    let frequency_ticks = [
+        (20.0, "20 Hz"),
+        (50.0, "50"),
+        (100.0, "100"),
+        (200.0, "200"),
+        (500.0, "500"),
+        (1_000.0, "1k"),
+        (2_000.0, "2k"),
+        (5_000.0, "5k"),
+        (10_000.0, "10k"),
+        (20_000.0, "20 kHz"),
+    ];
+    for (index, (frequency, label)) in frequency_ticks.iter().enumerate() {
+        let x = eq_frequency_to_x(plot_rect, *frequency);
+        painter.vline(
+            x,
+            plot_rect.y_range(),
+            Stroke::new(1.0, ds.colors.border_subtle),
+        );
+        let alignment = if index == 0 {
+            egui::Align2::LEFT_TOP
+        } else if index == frequency_ticks.len() - 1 {
+            egui::Align2::RIGHT_TOP
+        } else {
+            egui::Align2::CENTER_TOP
+        };
+        painter.text(
+            Pos2::new(x, plot_rect.bottom() + 6.0),
+            alignment,
+            *label,
+            crate::TextRole::GraphLabel.font_id(),
+            ds.colors.text_secondary,
+        );
     }
     for gain in [-12.0, -6.0, 0.0, 6.0, 12.0] {
-        let y = eq_gain_to_y(rect, gain);
+        let y = eq_gain_to_y(plot_rect, gain);
         painter.hline(
-            rect.x_range(),
+            plot_rect.x_range(),
             y,
             Stroke::new(
                 if gain == 0.0 { 1.5 } else { 1.0 },
@@ -781,6 +809,35 @@ fn show_eq_graph(
                 },
             ),
         );
+        painter.text(
+            Pos2::new(plot_rect.left() - 8.0, y),
+            egui::Align2::RIGHT_CENTER,
+            if gain > 0.0 {
+                format!("+{gain:.0} dB")
+            } else {
+                format!("{gain:.0} dB")
+            },
+            crate::TextRole::GraphLabel.font_id(),
+            ds.colors.text_secondary,
+        );
+    }
+
+    for band in &slot.equalizer.bands {
+        if let Some(x) = eq_filter_guide_x(plot_rect, band) {
+            let base = eq_band_color(band.shape);
+            let guide = Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), 26);
+            let mut y = plot_rect.top();
+            while y < plot_rect.bottom() {
+                painter.line_segment(
+                    [
+                        Pos2::new(x, y),
+                        Pos2::new(x, (y + 3.0).min(plot_rect.bottom())),
+                    ],
+                    Stroke::new(1.0, guide),
+                );
+                y += 7.0;
+            }
+        }
     }
 
     let sample_rate = slot.sample_rate_hz.max(1.0) as u32;
@@ -791,10 +848,10 @@ fn show_eq_graph(
             let frequency = ir_eq::MIN_FREQUENCY_HZ
                 * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t);
             Pos2::new(
-                egui::lerp(rect.x_range(), t),
+                egui::lerp(plot_rect.x_range(), t),
                 eq_gain_to_y(
-                    rect,
-                    ir_eq::response_db(&slot.equalizer, sample_rate, frequency),
+                    plot_rect,
+                    ir_eq::filter_response_db(&slot.equalizer, sample_rate, frequency),
                 ),
             )
         })
@@ -804,24 +861,46 @@ fn show_eq_graph(
         Stroke::new(2.0, IR_COLORS[slot.color_index as usize % IR_COLORS.len()]),
     ));
 
-    let pointer = response.interact_pointer_pos();
-    let hovered_band =
-        pointer.and_then(|position| nearest_eq_band(rect, &slot.equalizer.bands, position));
-    for band in &slot.equalizer.bands {
-        let position = eq_band_position(rect, band);
+    let interaction_pointer = response.interact_pointer_pos();
+    let hovered_band = response
+        .hover_pos()
+        .and_then(|position| nearest_eq_band(plot_rect, &slot.equalizer.bands, position));
+    for (index, band) in slot.equalizer.bands.iter().enumerate() {
+        let position = eq_band_position(plot_rect, band);
         let is_selected = selected == Some(band.id);
-        let color = if !band.enabled {
-            ds.colors.text_muted
-        } else if is_selected {
-            ds.colors.accent_focus
+        let type_color = eq_band_color(band.shape);
+        let fill = if band.enabled {
+            type_color
         } else {
-            IR_COLORS[slot.color_index as usize % IR_COLORS.len()]
+            type_color.gamma_multiply(0.45)
         };
-        painter.circle_filled(position, if is_selected { 7.0 } else { 5.5 }, color);
+        painter.circle_filled(position, 13.0, fill);
         painter.circle_stroke(
             position,
-            if is_selected { 9.0 } else { 7.0 },
-            Stroke::new(1.0, ds.colors.text_primary),
+            if is_selected { 16.0 } else { 14.0 },
+            Stroke::new(
+                if is_selected { 2.0 } else { 1.0 },
+                if is_selected {
+                    ds.colors.accent_focus
+                } else {
+                    ds.colors.border_strong
+                },
+            ),
+        );
+        let label_color = match band.shape {
+            EqShape::LowShelf | EqShape::HighPass | EqShape::LowPass => ds.colors.surface_canvas,
+            _ => ds.colors.text_on_accent,
+        };
+        painter.text(
+            position,
+            egui::Align2::CENTER_CENTER,
+            eq_band_label(band.shape, index),
+            crate::TextRole::GraphLabel.font_id(),
+            if band.enabled {
+                label_color
+            } else {
+                label_color.gamma_multiply(0.65)
+            },
         );
     }
 
@@ -837,8 +916,8 @@ fn show_eq_graph(
         let horizontal = !shift || delta.x.abs() >= delta.y.abs();
         let vertical = !shift || delta.y.abs() > delta.x.abs();
         if horizontal && delta.x != 0.0 {
-            let octaves =
-                delta.x / rect.width() * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).log2();
+            let octaves = delta.x / plot_rect.width()
+                * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).log2();
             commands.push(AppCommand::SetEqBandFrequency(
                 slot.id,
                 band_id,
@@ -849,26 +928,24 @@ fn show_eq_graph(
             commands.push(AppCommand::SetEqBandGain(
                 slot.id,
                 band_id,
-                band.gain_db - delta.y / rect.height() * 24.0,
+                band.gain_db - delta.y / plot_rect.height() * 24.0,
             ));
         }
     }
-    if response.hovered()
-        && let Some(band_id) = hovered_band
-    {
-        let scroll = ui.input(|input| input.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            ui.ctx()
-                .input_mut(|input| input.smooth_scroll_delta = Vec2::ZERO);
-            if let Some(band) = slot.equalizer.bands.iter().find(|band| band.id == band_id) {
-                if ui.input(|input| input.modifiers.shift) {
-                    if band.shape.has_gain() {
-                        commands.push(AppCommand::SetEqBandGain(
-                            slot.id,
-                            band_id,
-                            band.gain_db + scroll.signum() * 0.1,
-                        ));
-                    }
+    if let Some(band_id) = hovered_band {
+        let scroll = raw_vertical_scroll_delta(ui);
+        if scroll != 0.0
+            && let Some(band) = slot.equalizer.bands.iter().find(|band| band.id == band_id)
+        {
+            let shift = ui.input(|input| input.modifiers.shift);
+            if !shift || band.shape.has_gain() {
+                ui.input_mut(|input| input.smooth_scroll_delta.y = 0.0);
+                if shift {
+                    commands.push(AppCommand::SetEqBandGain(
+                        slot.id,
+                        band_id,
+                        band.gain_db + scroll.signum() * 0.1,
+                    ));
                 } else {
                     commands.push(AppCommand::SetEqBandQ(
                         slot.id,
@@ -880,7 +957,7 @@ fn show_eq_graph(
         }
     }
 
-    let menu_position = pointer.unwrap_or(rect.center());
+    let menu_position = interaction_pointer.unwrap_or(plot_rect.center());
     response.context_menu(|ui| {
         if let Some(band_id) = hovered_band {
             for shape in EqShape::ALL {
@@ -894,17 +971,18 @@ fn show_eq_graph(
                 commands.push(AppCommand::RemoveEqBand(slot.id, band_id));
                 ui.close();
             }
-        } else if ui
-            .add_enabled(
-                slot.equalizer.bands.len() < ir_eq::MAX_BANDS,
-                egui::Button::new("Create Bell band here"),
-            )
-            .clicked()
+        } else if plot_rect.contains(menu_position)
+            && ui
+                .add_enabled(
+                    slot.equalizer.bands.len() < ir_eq::MAX_BANDS,
+                    egui::Button::new("Create Bell band here"),
+                )
+                .clicked()
         {
             commands.push(AppCommand::AddEqBand(
                 slot.id,
-                eq_x_to_frequency(rect, menu_position.x),
-                eq_y_to_gain(rect, menu_position.y),
+                eq_x_to_frequency(plot_rect, menu_position.x),
+                eq_y_to_gain(plot_rect, menu_position.y),
             ));
             ui.close();
         }
@@ -989,6 +1067,48 @@ fn show_selected_band(
             }
         });
     });
+}
+
+fn eq_band_color(shape: EqShape) -> Color32 {
+    match shape {
+        EqShape::Bell => IR_COLORS[0],
+        EqShape::LowShelf => IR_COLORS[6],
+        EqShape::HighShelf => IR_COLORS[1],
+        EqShape::Notch => IR_COLORS[5],
+        EqShape::HighPass => IR_COLORS[2],
+        EqShape::LowPass => IR_COLORS[3],
+    }
+}
+
+fn eq_band_label(shape: EqShape, band_index: usize) -> String {
+    match shape {
+        EqShape::Bell => format!("{:02}", band_index.min(99)),
+        EqShape::LowShelf => "LS".to_owned(),
+        EqShape::HighShelf => "HS".to_owned(),
+        EqShape::Notch => "NT".to_owned(),
+        EqShape::HighPass => "HP".to_owned(),
+        EqShape::LowPass => "LP".to_owned(),
+    }
+}
+
+fn eq_filter_guide_x(rect: Rect, band: &ir_app::EqBand) -> Option<f32> {
+    matches!(band.shape, EqShape::HighPass | EqShape::LowPass)
+        .then(|| eq_frequency_to_x(rect, band.frequency_hz))
+}
+
+fn raw_vertical_scroll_delta(ui: &Ui) -> f32 {
+    ui.input(|input| {
+        input
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::MouseWheel {
+                    delta, modifiers, ..
+                } if !modifiers.ctrl && !modifiers.command => Some(delta.y),
+                _ => None,
+            })
+            .sum()
+    })
 }
 
 fn eq_frequency_to_x(rect: Rect, frequency: f32) -> f32 {
@@ -1165,5 +1285,47 @@ mod equalizer_tests {
             q: 2.0,
         };
         assert_eq!(eq_band_position(rect, &band).y, eq_gain_to_y(rect, 0.0));
+    }
+
+    #[test]
+    fn band_labels_use_type_abbreviations_and_full_list_position() {
+        assert_eq!(eq_band_label(EqShape::Bell, 0), "00");
+        assert_eq!(eq_band_label(EqShape::Bell, 7), "07");
+        assert_eq!(eq_band_label(EqShape::LowShelf, 0), "LS");
+        assert_eq!(eq_band_label(EqShape::HighShelf, 0), "HS");
+        assert_eq!(eq_band_label(EqShape::Notch, 0), "NT");
+        assert_eq!(eq_band_label(EqShape::HighPass, 0), "HP");
+        assert_eq!(eq_band_label(EqShape::LowPass, 0), "LP");
+    }
+
+    #[test]
+    fn every_shape_has_the_approved_type_color() {
+        assert_eq!(eq_band_color(EqShape::Bell), IR_COLORS[0]);
+        assert_eq!(eq_band_color(EqShape::LowShelf), IR_COLORS[6]);
+        assert_eq!(eq_band_color(EqShape::HighShelf), IR_COLORS[1]);
+        assert_eq!(eq_band_color(EqShape::Notch), IR_COLORS[5]);
+        assert_eq!(eq_band_color(EqShape::HighPass), IR_COLORS[2]);
+        assert_eq!(eq_band_color(EqShape::LowPass), IR_COLORS[3]);
+    }
+
+    #[test]
+    fn only_pass_filters_receive_frequency_guides() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 360.0));
+        let mut band = ir_app::EqBand {
+            id: EqBandId(1),
+            enabled: true,
+            shape: EqShape::HighPass,
+            frequency_hz: 1_000.0,
+            gain_db: 0.0,
+            q: 1.0,
+        };
+        assert_eq!(
+            eq_filter_guide_x(rect, &band),
+            Some(eq_frequency_to_x(rect, 1_000.0))
+        );
+        band.shape = EqShape::LowPass;
+        assert!(eq_filter_guide_x(rect, &band).is_some());
+        band.shape = EqShape::Bell;
+        assert_eq!(eq_filter_guide_x(rect, &band), None);
     }
 }

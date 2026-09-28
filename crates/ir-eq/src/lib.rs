@@ -136,14 +136,15 @@ pub fn coefficients(band: &EqBand, sample_rate: u32) -> Result<Coefficients<f32>
     Coefficients::from_params(kind, sample_rate, frequency, q).map_err(|_| EqError::Coefficients)
 }
 
-pub fn response_db(state: &EqualizerState, sample_rate: u32, frequency_hz: f32) -> f32 {
-    if state.bypassed {
-        return 0.0;
-    }
+/// Returns the response of the enabled filter bands without EQ bypass or output trim.
+///
+/// This is the response shown by editors: bypass and output gain affect auditioning,
+/// but do not hide or vertically offset the filter shape being edited.
+pub fn filter_response_db(state: &EqualizerState, sample_rate: u32, frequency_hz: f32) -> f32 {
     let omega = 2.0 * core::f32::consts::PI * frequency_hz / sample_rate.max(1) as f32;
     let z1 = (omega.cos(), -omega.sin());
     let z2 = ((2.0 * omega).cos(), -(2.0 * omega).sin());
-    let mut db = state.output_gain_db;
+    let mut db = 0.0;
     for band in state
         .bands
         .iter()
@@ -162,6 +163,17 @@ pub fn response_db(state: &EqualizerState, sample_rate: u32, frequency_hz: f32) 
         db += 20.0 * magnitude.max(f32::MIN_POSITIVE).log10();
     }
     db
+}
+
+/// Returns the effective response used for level and headroom estimates.
+///
+/// Unlike [`filter_response_db`], this includes complete-EQ bypass and output trim.
+pub fn response_db(state: &EqualizerState, sample_rate: u32, frequency_hz: f32) -> f32 {
+    if state.bypassed {
+        0.0
+    } else {
+        state.output_gain_db + filter_response_db(state, sample_rate, frequency_hz)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -287,6 +299,29 @@ mod tests {
             response_db(&EqualizerState::default(), 48_000, 1_000.0),
             0.0
         );
+    }
+
+    #[test]
+    fn filter_preview_ignores_bypass_and_output_gain() {
+        let mut state = EqualizerState {
+            bypassed: false,
+            output_gain_db: -9.0,
+            bands: vec![EqBand {
+                id: EqBandId(1),
+                enabled: true,
+                shape: EqShape::Bell,
+                frequency_hz: 1_000.0,
+                gain_db: 6.0,
+                q: 1.0,
+            }],
+        };
+        let visible = filter_response_db(&state, 48_000, 1_000.0);
+        assert!((visible - 6.0).abs() < 0.01);
+        assert!((response_db(&state, 48_000, 1_000.0) + 3.0).abs() < 0.01);
+
+        state.bypassed = true;
+        assert!((filter_response_db(&state, 48_000, 1_000.0) - visible).abs() < 0.01);
+        assert_eq!(response_db(&state, 48_000, 1_000.0), 0.0);
     }
 
     #[test]
