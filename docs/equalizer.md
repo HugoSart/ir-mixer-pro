@@ -1,9 +1,8 @@
 # IR Mixer Pro — Per-IR Equalizer
 
-This document defines the product and processing contract for the planned
-per-IR parametric equalizer. The equalizer is the next implementation milestone
-and a first-release requirement. It is not part of the currently implemented
-audio path.
+This document defines the product and processing contract for the implemented
+per-IR parametric equalizer. It is a first-release feature built with the Rust
+`biquad` crate.
 
 The equalizer is deliberately narrower than a general impulse-response editor.
 Trim, crop, fades, alignment, phase conversion, and other waveform editing are
@@ -41,11 +40,17 @@ order are not identities; selection and mutations address bands by stable ID.
 | Shape | Controls | Purpose |
 | --- | --- | --- |
 | Bell | Frequency, gain, Q | Boost or cut a region centered on a frequency |
-| Low shelf | Frequency, gain, Q/slope | Boost or cut frequencies below a transition |
-| High shelf | Frequency, gain, Q/slope | Boost or cut frequencies above a transition |
+| Low shelf | Frequency, gain, Q | Boost or cut frequencies below a transition |
+| High shelf | Frequency, gain, Q | Boost or cut frequencies above a transition |
 | Notch | Frequency, Q | Reject a narrow frequency region |
-| High-pass | Cutoff frequency, Q/slope | Remove content below a cutoff |
-| Low-pass | Cutoff frequency, Q/slope | Remove content above a cutoff |
+| High-pass | Cutoff frequency, Q | Remove content below a cutoff |
+| Low-pass | Cutoff frequency, Q | Remove content above a cutoff |
+
+Frequency is constrained to 20 Hz–20 kHz and further constrained below Nyquist
+for the representation being processed. Band and EQ-output gain use −12 dB to
++12 dB. Q uses 0.1–12 with a default of 1.0. High-pass and low-pass are
+second-order 12 dB/octave filters whose Q controls resonance. Each IR supports
+up to 16 dynamic bands in v1.
 
 Controls that do not apply to the selected shape are hidden or disabled. All
 frequency values must remain valid for the active sample rate and below Nyquist.
@@ -93,7 +98,7 @@ The pane contains:
 - Complete-EQ bypass and EQ output-gain controls
 - An interactive logarithmic-frequency response graph
 - One selected-band strip with Enabled, shape, frequency, gain when applicable,
-  and Q/slope controls
+  and Q controls
 - Short interaction guidance for graph selection, dragging, scrolling, and
   context menus
 - Processed peak/headroom information and an explicit clipping warning
@@ -108,7 +113,7 @@ The graph is the primary band editor:
 - Shift plus a predominantly horizontal drag changes frequency only. Shift plus
   a predominantly vertical drag changes gain only. This axis lock is specific to
   the EQ graph and overrides the general Shift fine-adjustment convention.
-- The mouse wheel over a node changes Q/slope. Shift plus the mouse wheel changes
+- The mouse wheel over a node changes Q logarithmically. Shift plus the mouse wheel changes
   gain in 0.1 dB steps. The gain gesture has no effect on high-pass, low-pass,
   or notch bands.
 - Node wheel input is consumed so it does not scroll the sliding pane.
@@ -123,7 +128,7 @@ background analysis request continuously while remaining safely constrained to
 valid parameter and Nyquist limits.
 
 The selected-band strip edits only the current graph selection. It contains an
-Enabled checkbox, shape selector, frequency, gain when applicable, and Q/slope.
+Enabled checkbox, shape selector, frequency, gain when applicable, and Q.
 When no band is selected, every field displays `None`, uses the disabled visual
 treatment, and rejects mouse and keyboard interaction. There is no stacked band
 list, Add Band button, band reorder, duplicate-band action, individual-band
@@ -162,8 +167,8 @@ Each channel has independent filter state. Mono and stereo IRs share the same
 controls; stereo IRs do not share left/right delay elements or filter history.
 Independent left/right EQ controls are outside this milestone.
 
-The real-time implementation uses second-order IIR sections for the supported
-shapes. Coefficients and replacement filter banks are prepared and validated
+The real-time implementation uses `biquad` 0.6 `DirectForm1<f32>` second-order
+IIR sections. Coefficients and replacement filter banks are prepared and validated
 outside the callback. The audio callback must not allocate, deallocate, block,
 lock a mutex, access the filesystem, or evaluate unbounded coefficient-design
 work. Parameter and topology changes are smoothed or crossfaded so that adding,
@@ -198,8 +203,9 @@ native-rate source
 
 Coefficient generation uses the rate of the representation being processed.
 Export does not reuse monitoring-rate coefficients or prepared audio. Because an
-IIR response is theoretically infinite, offline rendering must include a finite,
-documented tail policy before the existing final trim/pad choice is applied.
+IIR response is theoretically infinite, offline rendering feeds silence until
+both channels remain below −120 dBFS for 256 consecutive frames, capped at two
+seconds, before the existing final trim/pad choice is applied.
 Monitoring bypass and the safety limiter are still excluded from exported IRs.
 
 The milestone does not add a separate single-IR export workflow. The existing
@@ -213,8 +219,8 @@ states, and parameters are portable project state. They are saved in standalone
 presets and future plugin sessions. Missing IR files retain their EQ settings so
 the project can recover without losing edits when the file is relinked.
 
-The preset schema must be versioned when EQ state is implemented. Older presets
-migrate to an empty, enabled, unity-gain EQ chain. Plugin automation mapping for
+Preset schema version 4 stores EQ state. Older presets migrate to an empty,
+enabled, unity-gain EQ chain. Plugin automation mapping for
 dynamic bands is a plugin-adapter design decision; complete session-state
 persistence is required regardless of automation exposure.
 

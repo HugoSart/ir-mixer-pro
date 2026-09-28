@@ -76,10 +76,11 @@ impl Widget for AudioKnob<'_> {
         } else {
             vec2(64.0, 88.0)
         };
-        let sense = self
-            .enabled
-            .then_some(Sense::click_and_drag())
-            .unwrap_or(Sense::hover());
+        let sense = if self.enabled {
+            Sense::click_and_drag()
+        } else {
+            Sense::hover()
+        };
         let (rect, mut response) = ui.allocate_exact_size(size, sense);
         response = response.on_hover_text(format!(
             "Drag to adjust · Scroll for 0.01 steps · Shift for fine adjustment · Double-click to reset to {:.2}{}",

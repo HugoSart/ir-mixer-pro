@@ -505,6 +505,24 @@ mod tests {
         assert!(!project.set_balance_percent(IrId(1), 25.0));
         assert_eq!(project.ir_slots[0].balance_percent, 100.0);
     }
+
+    #[test]
+    fn schema_three_migrates_to_a_transparent_equalizer() {
+        let mut document = PresetDocument::new(project(&[0.0]));
+        document.schema_version = 3;
+        document.project.ir_slots[0].equalizer.bypassed = true;
+        document.project.ir_slots[0].equalizer.output_gain_db = 6.0;
+        document.project.ir_slots[0]
+            .equalizer
+            .bands
+            .push(ir_eq::EqBand::bell(ir_eq::EqBandId(7), 1_000.0, 3.0));
+        let migrated = document.migrate().unwrap();
+        assert_eq!(migrated.schema_version, PRESET_SCHEMA_VERSION);
+        assert_eq!(
+            migrated.project.ir_slots[0].equalizer,
+            ir_eq::EqualizerState::default()
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -87,9 +87,15 @@ The following updates do not rebuild convolvers:
 - Positive delay
 - Output gain and bypass
 - Limiter enable
+- Per-IR EQ parameters, topology, bypass, and EQ output gain
 
 Gain, pan, polarity, audibility, output gain, and bypass transitions are smoothed
 over 10 ms. Delay uses preallocated lines up to 4096 samples.
+
+Each IR owns up to 16 dynamic `biquad` `DirectForm1<f32>` sections per channel.
+The cascade runs after convolution and before delay, polarity, rack gain, and
+pan. Replacement chains preserve matching stable-ID histories, crossfade for
+10 ms, and retire completed state outside the callback.
 
 If every IR is disabled, muted, or excluded by solo logic, monitoring passes the
 source through. This prevents an empty rack from unexpectedly silencing input.
@@ -155,7 +161,8 @@ export rate with the offline 64-tap windowed-sinc resampler. Therefore:
 - Choosing a lower export rate intentionally band-limits higher-rate sources.
 - Repeated output-device changes do not accumulate resampling loss.
 
-Export then applies per-IR normalization, delay, polarity, gain, pan, sum,
+Export then applies per-IR normalization, sample-rate-specific EQ and EQ output
+gain, delay, polarity, gain, pan, sum,
 output gain, optional length trim/pad, channel conversion, optional final
 normalization, and WAV encoding.
 
@@ -164,7 +171,9 @@ normalization, and WAV encoding.
 When Trim to Length is enabled, export writes exactly 1024, 2048, or 4096 frames
 at the chosen export rate. A shorter natural response is zero-padded; a longer
 response, including a room tail, is truncated. When trimming is disabled, the
-longest active resampled IR plus its delay determines the output length.
+longest active resampled IR plus its delay determines the output length. Active
+IIR tails render until both channels remain below −120 dBFS for 256 frames, with
+a two-second cap.
 
 Encoding choices are:
 

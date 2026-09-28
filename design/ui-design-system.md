@@ -221,7 +221,7 @@ order. Custom widgets must expose useful labels through egui/AccessKit.
 ## 6. Audio Visuals
 
 - The equalizer response graph is directly editable. Nodes use click selection,
-  two-axis drag for frequency/gain, Shift axis locking, wheel Q/slope changes,
+  two-axis drag for frequency/gain, Shift axis locking, logarithmic wheel Q changes,
   Shift-wheel 0.1 dB gain steps, and right-click context menus. Wheel and context
   interactions are consumed so the containing pane does not scroll or dismiss.
 - High-pass, low-pass, and notch nodes ignore gain gestures. Disabled nodes stay

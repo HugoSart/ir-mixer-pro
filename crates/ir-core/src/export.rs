@@ -58,7 +58,12 @@ pub fn render_mix(
     let mut natural_frames = 0;
     for source in active {
         let audio = source.audio.resample(settings.sample_rate)?;
-        let audio = apply_equalizer(&audio, source.equalizer)?;
+        let normalization = if source.normalize {
+            audio.normalization_gain(0.0)
+        } else {
+            1.0
+        };
+        let audio = apply_equalizer(&audio, source.equalizer, normalization)?;
         natural_frames = natural_frames.max(source.delay_samples + audio.frame_count());
         prepared.push((source, audio));
     }
@@ -68,13 +73,8 @@ pub fn render_mix(
     let output_gain = db_to_gain(settings.output_gain_db);
     for (source, audio) in prepared {
         let (source_left, source_right) = audio.to_stereo();
-        let normalization = if source.normalize {
-            audio.normalization_gain(0.0)
-        } else {
-            1.0
-        };
         let polarity = if source.polarity_inverted { -1.0 } else { 1.0 };
-        let gain = db_to_gain(source.gain_db) * normalization * polarity * output_gain;
+        let gain = db_to_gain(source.gain_db) * polarity * output_gain;
         let (pan_left, pan_right) = constant_power_pan(source.pan);
         for frame in 0..audio.frame_count() {
             let destination = frame + source.delay_samples;
@@ -109,24 +109,35 @@ pub fn render_mix(
     Ok(AudioBuffer::new(settings.sample_rate, channels)?)
 }
 
-fn apply_equalizer(audio: &AudioBuffer, state: &EqualizerState) -> Result<AudioBuffer, RenderError> {
-    if state.bypassed
-        || (state.bands.iter().all(|band| !band.enabled) && state.output_gain_db == 0.0)
-    {
+fn apply_equalizer(
+    audio: &AudioBuffer,
+    state: &EqualizerState,
+    normalization_gain: f32,
+) -> Result<AudioBuffer, RenderError> {
+    if state.bypassed && normalization_gain == 1.0 {
         return Ok(audio.clone());
     }
     let (source_left, source_right) = audio.to_stereo();
     let mut processor = EqProcessor::prepare(state, audio.sample_rate().0)?;
-    let gain = db_to_gain(state.output_gain_db);
+    let gain = normalization_gain
+        * if state.bypassed {
+            1.0
+        } else {
+            db_to_gain(state.output_gain_db)
+        };
     let reserve = audio.frame_count() + audio.sample_rate().0 as usize * 2;
     let mut left = Vec::with_capacity(reserve);
     let mut right = Vec::with_capacity(reserve);
     for (&left_in, &right_in) in source_left.iter().zip(&source_right) {
-        let (left_out, right_out) = processor.process_stereo(left_in, right_in);
+        let (left_out, right_out) = if state.bypassed {
+            (left_in, right_in)
+        } else {
+            processor.process_stereo(left_in, right_in)
+        };
         left.push(left_out * gain);
         right.push(right_out * gain);
     }
-    if !processor.is_empty() {
+    if !state.bypassed && !processor.is_empty() {
         let threshold = db_to_gain(-120.0);
         let mut quiet_frames = 0;
         for _ in 0..audio.sample_rate().0 as usize * 2 {
@@ -259,5 +270,46 @@ mod tests {
         assert_eq!(mixed.sample_rate(), SampleRate(96_000));
         assert_eq!(mixed.frame_count(), high_rate.frame_count());
         assert_eq!(mixed.channels(), high_only.channels());
+    }
+
+    #[test]
+    fn equalizer_extends_an_untrimmed_iir_tail_but_trim_remains_exact() {
+        let impulse = AudioBuffer::mono(SampleRate(48_000), vec![1.0]);
+        let equalizer = EqualizerState {
+            bypassed: false,
+            output_gain_db: 0.0,
+            bands: vec![ir_eq::EqBand {
+                id: ir_eq::EqBandId(1),
+                enabled: true,
+                shape: ir_eq::EqShape::LowPass,
+                frequency_hz: 1_000.0,
+                gain_db: 0.0,
+                q: 1.0,
+            }],
+        };
+        let source = MixSource {
+            audio: &impulse,
+            enabled: true,
+            muted: false,
+            soloed: false,
+            gain_db: 0.0,
+            delay_samples: 0,
+            pan: 0.0,
+            polarity_inverted: false,
+            normalize: false,
+            equalizer: &equalizer,
+        };
+        let settings = |frames| RenderSettings {
+            sample_rate: SampleRate(48_000),
+            frames,
+            channels: ExportChannels::Mono,
+            output_gain_db: 0.0,
+            normalize: false,
+            normalization_target_dbfs: -1.0,
+        };
+        let natural = render_mix(std::slice::from_ref(&source), settings(None)).unwrap();
+        let trimmed = render_mix(&[source], settings(Some(128))).unwrap();
+        assert!(natural.frame_count() > impulse.frame_count());
+        assert_eq!(trimmed.frame_count(), 128);
     }
 }

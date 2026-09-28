@@ -6,6 +6,7 @@ struct PageState {
     snapshot: AppSnapshot,
     mode: FrontendMode,
     initialized: bool,
+    open_equalizer: bool,
 }
 
 fn page_harness(size: egui::Vec2, mode: FrontendMode) -> Harness<'static, PageState> {
@@ -31,6 +32,12 @@ fn page_harness_with_snapshot(
                 ui.ctx().request_repaint();
                 return;
             }
+            if state.open_equalizer {
+                if let Some(slot) = state.snapshot.project.ir_slots.first() {
+                    ir_ui::app::open_equalizer_pane(ui.ctx(), slot.id);
+                }
+                state.open_equalizer = false;
+            }
             AppPage::new(&state.snapshot)
                 .frontend_mode(state.mode)
                 .show(ui);
@@ -39,8 +46,26 @@ fn page_harness_with_snapshot(
             snapshot,
             mode,
             initialized: false,
+            open_equalizer: false,
         },
     )
+}
+
+#[test]
+fn equalizer_pane_renders_the_graph_and_selected_band_contract() {
+    let backend = MockAudioBackend::default();
+    let snapshot = backend.snapshot().clone();
+    let mut harness = page_harness_with_snapshot(
+        egui::vec2(1536.0, 1024.0),
+        FrontendMode::Standalone,
+        snapshot,
+    );
+    harness.state_mut().open_equalizer = true;
+    harness.run();
+    harness.get_by_label("Bypass EQ");
+    harness.get_by_label("Copy");
+    harness.get_by_label("Reset all");
+    harness.snapshot("equalizer_pane_wide");
 }
 
 #[test]

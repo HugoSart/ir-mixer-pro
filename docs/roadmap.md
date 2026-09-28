@@ -16,9 +16,8 @@ sizes, rates, lifecycle transitions, and state restoration cases.
 
 ## Per-IR equalizer
 
-The equalizer is the next implementation milestone and a first-release
-requirement. Its product and processing contract is defined in
-[equalizer.md](equalizer.md).
+The equalizer is implemented as a first-release feature. Its product and
+processing contract is defined in [equalizer.md](equalizer.md).
 
 - Add a responsive right-edge equalizer pane targeting 920 points and shrinking
   to the available body width on smaller windows.

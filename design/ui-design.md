@@ -143,6 +143,11 @@ knobs remain neutral so color does not imply a semantic warning.
 The row action menu provides Move Up, Move Down, Replace IR File, and Remove IR.
 Reordering is explicit; drag-and-drop reorder is roadmap work.
 
+The row action menu also opens the selected IR's parametric EQ in the responsive
+right-edge sliding pane. The 920-point pane contains the directly editable
+response graph and one selected-band value strip; it shrinks to the available
+body width on smaller windows.
+
 Add and replace actions show an in-button spinner while background preparation
 is active. Existing metadata remains visible during replacement. New slots show
 an intentional loading state and errors stay associated with the affected row.

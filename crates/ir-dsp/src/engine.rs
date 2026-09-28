@@ -106,6 +106,9 @@ pub struct PreparedSlot {
     polarity: SmoothedValue,
     audible_mix: SmoothedValue,
     equalizer: Box<PreparedEqualizer>,
+    previous_equalizer: Option<Box<PreparedEqualizer>>,
+    eq_fade_position: usize,
+    eq_fade_duration: usize,
     eq_output_gain: SmoothedValue,
     eq_bypass_mix: SmoothedValue,
     delay_left: DelayLine,
@@ -169,8 +172,14 @@ impl PreparedSlot {
                 smoothing,
             ),
             equalizer: Box::new(PreparedEqualizer::new(equalizer, config.sample_rate)?),
+            previous_equalizer: None,
+            eq_fade_position: smoothing,
+            eq_fade_duration: smoothing,
             eq_output_gain: SmoothedValue::new(db_to_gain(equalizer.output_gain_db), smoothing),
-            eq_bypass_mix: SmoothedValue::new(if equalizer.bypassed { 1.0 } else { 0.0 }, smoothing),
+            eq_bypass_mix: SmoothedValue::new(
+                if equalizer.bypassed { 1.0 } else { 0.0 },
+                smoothing,
+            ),
             delay_left: DelayLine::new(config.max_delay_samples, config.block_size, smoothing),
             delay_right: DelayLine::new(config.max_delay_samples, config.block_size, smoothing),
             scratch_left: vec![0.0; config.block_size],
@@ -181,11 +190,18 @@ impl PreparedSlot {
         self.id
     }
 
-    fn replace_equalizer(&mut self, mut replacement: Box<PreparedEqualizer>) -> Box<PreparedEqualizer> {
+    fn replace_equalizer(
+        &mut self,
+        mut replacement: Box<PreparedEqualizer>,
+    ) -> Option<Box<PreparedEqualizer>> {
         replacement.seed_from(&self.equalizer);
         self.eq_output_gain.set_target(replacement.output_gain);
-        self.eq_bypass_mix.set_target(if replacement.bypassed { 1.0 } else { 0.0 });
-        std::mem::replace(&mut self.equalizer, replacement)
+        self.eq_bypass_mix
+            .set_target(if replacement.bypassed { 1.0 } else { 0.0 });
+        let old_current = std::mem::replace(&mut self.equalizer, replacement);
+        let retired = self.previous_equalizer.replace(old_current);
+        self.eq_fade_position = 0;
+        retired
     }
 }
 
@@ -270,9 +286,20 @@ impl DspEngine {
         &mut self,
         id: u64,
         replacement: Box<PreparedEqualizer>,
-    ) -> Result<Box<PreparedEqualizer>, EngineError> {
-        let slot = self.slots.iter_mut().find(|slot| slot.id == id).ok_or(EngineError::UnknownSlot(id))?;
+    ) -> Result<Option<Box<PreparedEqualizer>>, EngineError> {
+        let slot = self
+            .slots
+            .iter_mut()
+            .find(|slot| slot.id == id)
+            .ok_or(EngineError::UnknownSlot(id))?;
         Ok(slot.replace_equalizer(replacement))
+    }
+    pub fn take_retired_equalizer(&mut self) -> Option<Box<PreparedEqualizer>> {
+        self.slots.iter_mut().find_map(|slot| {
+            (slot.eq_fade_position >= slot.eq_fade_duration)
+                .then(|| slot.previous_equalizer.take())
+                .flatten()
+        })
     }
     pub fn set_slot_parameters(
         &mut self,
@@ -352,11 +379,28 @@ impl DspEngine {
             for index in 0..block {
                 let dry_left = slot.scratch_left[index];
                 let dry_right = slot.scratch_right[index];
-                let (wet_left, wet_right) = slot.equalizer.processor.process_stereo(dry_left, dry_right);
+                let (wet_left, wet_right) =
+                    slot.equalizer.processor.process_stereo(dry_left, dry_right);
+                let (wet_left, wet_right) = if let Some(previous) = &mut slot.previous_equalizer {
+                    let (old_left, old_right) =
+                        previous.processor.process_stereo(dry_left, dry_right);
+                    let t = (slot.eq_fade_position as f32 / slot.eq_fade_duration as f32)
+                        .clamp(0.0, 1.0);
+                    if slot.eq_fade_position < slot.eq_fade_duration {
+                        slot.eq_fade_position += 1;
+                    }
+                    (
+                        old_left + (wet_left - old_left) * t,
+                        old_right + (wet_right - old_right) * t,
+                    )
+                } else {
+                    (wet_left, wet_right)
+                };
                 let gain = slot.eq_output_gain.next();
                 let bypass = slot.eq_bypass_mix.next();
                 slot.scratch_left[index] = wet_left * gain + (dry_left - wet_left * gain) * bypass;
-                slot.scratch_right[index] = wet_right * gain + (dry_right - wet_right * gain) * bypass;
+                slot.scratch_right[index] =
+                    wet_right * gain + (dry_right - wet_right * gain) * bypass;
             }
             let delay = slot.params.delay_samples.min(self.config.max_delay_samples);
             for index in 0..block {
@@ -638,5 +682,50 @@ mod tests {
         }
         let operations = crate::test_alloc::stop();
         assert_eq!(operations, 0, "audio processing performed heap operations");
+    }
+
+    #[test]
+    fn equalizer_transition_processes_without_heap_operations_and_retires_old_chain() {
+        let config = EngineConfig {
+            block_size: 64,
+            smoothing_ms: 1.0,
+            ..EngineConfig::default()
+        };
+        let ir = AudioBuffer::mono(SampleRate(48_000), vec![1.0; 256]);
+        let mut engine = DspEngine::new(config);
+        engine
+            .add_slot(PreparedSlot::new(1, &ir, config, SlotParameters::default()).unwrap())
+            .unwrap();
+        let state = EqualizerState {
+            bypassed: false,
+            output_gain_db: -1.0,
+            bands: vec![ir_eq::EqBand {
+                id: ir_eq::EqBandId(1),
+                enabled: true,
+                shape: ir_eq::EqShape::Bell,
+                frequency_hz: 2_000.0,
+                gain_db: 4.0,
+                q: 2.0,
+            }],
+        };
+        let replacement = Box::new(PreparedEqualizer::new(&state, config.sample_rate).unwrap());
+        assert!(
+            engine
+                .replace_slot_equalizer(1, replacement)
+                .unwrap()
+                .is_none()
+        );
+        let input = [0.1; 64];
+        let mut left = [0.0; 64];
+        let mut right = [0.0; 64];
+        crate::test_alloc::start();
+        engine
+            .process(&input, &input, &mut left, &mut right)
+            .unwrap();
+        let retired = engine.take_retired_equalizer();
+        let operations = crate::test_alloc::stop();
+        assert_eq!(operations, 0, "EQ transition performed heap operations");
+        assert!(retired.is_some());
+        assert!(left.iter().all(|sample| sample.is_finite()));
     }
 }

@@ -52,7 +52,8 @@ fn create_ico(source: &Path, destination: &Path) -> Result<(), Box<dyn std::erro
     }
 
     let directory_size = 6 + images.len() * 16;
-    let mut file = Vec::with_capacity(directory_size + images.iter().map(|(_, png)| png.len()).sum::<usize>());
+    let mut file =
+        Vec::with_capacity(directory_size + images.iter().map(|(_, png)| png.len()).sum::<usize>());
     file.write_all(&0_u16.to_le_bytes())?;
     file.write_all(&1_u16.to_le_bytes())?;
     file.write_all(&(images.len() as u16).to_le_bytes())?;
@@ -75,11 +76,17 @@ fn create_ico(source: &Path, destination: &Path) -> Result<(), Box<dyn std::erro
 }
 
 fn find_resource_compiler() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("RC").map(PathBuf::from).filter(|path| path.is_file()) {
+    if let Some(path) = env::var_os("RC")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
         return Some(path);
     }
     let kits = env::var_os("ProgramFiles(x86)")?;
-    let bin = PathBuf::from(kits).join("Windows Kits").join("10").join("bin");
+    let bin = PathBuf::from(kits)
+        .join("Windows Kits")
+        .join("10")
+        .join("bin");
     let architecture = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("x86") => "x86",
         Ok("aarch64") => "arm64",

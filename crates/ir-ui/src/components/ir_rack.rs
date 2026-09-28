@@ -282,6 +282,7 @@ fn cell(
     child.set_clip_rect(ui.clip_rect().intersect(rect));
     body(&mut child);
 }
+#[allow(clippy::too_many_arguments)]
 fn row(
     ui: &mut Ui,
     s: &IrRackSlotView<'_>,

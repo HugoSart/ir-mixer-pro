@@ -7,15 +7,15 @@ use crate::{
         ContentStatusView, ExportMixedIrAction, ExportMixedIrCard, ExportMixedIrCardView,
         ExportStatusView, InputSourceAction, InputSourceCard, InputSourceCardView, IrRackAction,
         IrRackCard, IrRackCardView, IrRackSlotView, OutputAction, OutputCard, OutputCardView,
-        SlidingPane, SourceMode as UiSourceMode, StatusBar, StatusBarView, TopBar, TopBarAction, TopBarView,
-        TransportState as UiTransportState,
+        SlidingPane, SourceMode as UiSourceMode, StatusBar, StatusBarView, TopBar, TopBarAction,
+        TopBarView, TransportState as UiTransportState,
     },
 };
-use egui::{Color32, Id, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, Vec2};
+use egui::{Id, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, Vec2};
 use egui_lucide::Lucide;
 use ir_app::{
-    AnalysisTab, AppCommand, AppSnapshot, Choice, ContentState, ExportState, FrontendMode, IrId,
-    EqBandId, EqShape, SourceMode, TransportState, selected_id, selected_index,
+    AnalysisTab, AppCommand, AppSnapshot, Choice, ContentState, EqBandId, EqShape, ExportState,
+    FrontendMode, IrId, SourceMode, TransportState, selected_id, selected_index,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -25,6 +25,19 @@ struct EqPaneUiState {
 }
 
 const EQ_PANE_STATE_ID: &str = "application_equalizer_pane_state";
+
+/// Opens the per-IR equalizer pane on the next application-page frame.
+pub fn open_equalizer_pane(ctx: &egui::Context, ir_id: IrId) {
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            Id::new(EQ_PANE_STATE_ID),
+            EqPaneUiState {
+                open: true,
+                ir_id: Some(ir_id),
+            },
+        );
+    });
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct AppLayoutConfig {
@@ -369,9 +382,7 @@ impl<'a> AppPage<'a> {
             .into_iter()
             .map(|action| {
                 if let IrRackAction::EditEqualizer { id } = action {
-                    ui.ctx().data_mut(|data| {
-                        data.insert_temp(Id::new(EQ_PANE_STATE_ID), EqPaneUiState { open: true, ir_id: Some(IrId(id)) });
-                    });
+                    open_equalizer_pane(ui.ctx(), IrId(id));
                     AppCommand::SelectIr(IrId(id))
                 } else {
                     map_rack_action(action)
@@ -606,6 +617,447 @@ impl<'a> AppPage<'a> {
             ExportMixedIrAction::Export => AppCommand::Export,
         })
     }
+
+    fn show_equalizer_pane(&self, ui: &mut Ui, body_rect: Rect) -> Vec<AppCommand> {
+        let ctx = ui.ctx();
+        let state_id = Id::new(EQ_PANE_STATE_ID);
+        let mut pane =
+            ctx.data_mut(|data| data.get_temp::<EqPaneUiState>(state_id).unwrap_or_default());
+        let Some(ir_id) = pane.ir_id else {
+            pane.open = false;
+            ctx.data_mut(|data| data.insert_temp(state_id, pane));
+            return Vec::new();
+        };
+        let Some(slot) = self
+            .snapshot
+            .project
+            .ir_slots
+            .iter()
+            .find(|slot| slot.id == ir_id)
+        else {
+            pane.open = false;
+            pane.ir_id = None;
+            ctx.data_mut(|data| data.insert_temp(state_id, pane));
+            return Vec::new();
+        };
+
+        let ds = DesignSystem::from_context(ctx);
+        let selected = self
+            .snapshot
+            .selected_eq
+            .filter(|(selected_ir, _)| *selected_ir == ir_id)
+            .map(|(_, band)| band);
+        let mut commands = Vec::new();
+        let response = SlidingPane::new(
+            "application_equalizer_pane",
+            "Parametric EQ",
+            Lucide::SlidersHorizontal,
+            body_rect,
+        )
+        .width(ds.metrics.equalizer_pane_width.min(body_rect.width()))
+        .show(ctx, &mut pane.open, |ui| {
+            ui.spacing_mut().item_spacing.y = ds.metrics.space_md;
+            ui.horizontal(|ui| {
+                ui.colored_label(
+                    IR_COLORS[slot.color_index as usize % IR_COLORS.len()],
+                    "●",
+                );
+                ui.vertical(|ui| {
+                    ui.strong(&slot.filename);
+                    ui.small(&slot.metadata);
+                });
+            });
+
+            ui.horizontal(|ui| {
+                let mut bypassed = slot.equalizer.bypassed;
+                if ui.checkbox(&mut bypassed, "Bypass EQ").changed() {
+                    commands.push(AppCommand::SetEqBypassed(ir_id, bypassed));
+                }
+                ui.separator();
+                ui.label("Output");
+                let mut output_gain = slot.equalizer.output_gain_db;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut output_gain)
+                            .range(ir_eq::MIN_GAIN_DB..=ir_eq::MAX_GAIN_DB)
+                            .speed(0.1)
+                            .suffix(" dB"),
+                    )
+                    .changed()
+                {
+                    commands.push(AppCommand::SetEqOutputGainDb(ir_id, output_gain));
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Reset all").clicked() {
+                        commands.push(AppCommand::ResetEq(ir_id));
+                    }
+                    if ui
+                        .add_enabled(self.snapshot.eq_clipboard_available, egui::Button::new("Paste"))
+                        .clicked()
+                    {
+                        commands.push(AppCommand::PasteEq(ir_id));
+                    }
+                    if ui.button("Copy").clicked() {
+                        commands.push(AppCommand::CopyEq(ir_id));
+                    }
+                });
+            });
+
+            show_eq_graph(ui, slot, selected, &mut commands);
+            ui.small("Click a node to select · Drag for frequency/gain · Shift-drag locks an axis · Wheel changes Q · Shift-wheel changes gain · Right-click for band options");
+            show_selected_band(ui, ir_id, slot, selected, &mut commands);
+
+            let estimated_peak = estimate_eq_peak_db(slot);
+            let headroom = -estimated_peak;
+            let color = if headroom < 0.0 { ds.colors.status_danger } else { ds.colors.text_secondary };
+            ui.horizontal(|ui| {
+                ui.label("Estimated processed peak");
+                ui.colored_label(color, format!("{estimated_peak:.1} dBFS"));
+                ui.separator();
+                ui.label("Headroom");
+                ui.colored_label(color, format!("{headroom:.1} dB"));
+                if headroom < 0.0 {
+                    ui.colored_label(ds.colors.status_danger, "Clipping risk");
+                }
+            });
+        });
+        if response.fully_closed {
+            pane.ir_id = None;
+        }
+        ctx.data_mut(|data| data.insert_temp(state_id, pane));
+        commands
+    }
+}
+
+fn show_eq_graph(
+    ui: &mut Ui,
+    slot: &ir_app::IrSlotState,
+    selected: Option<EqBandId>,
+    commands: &mut Vec<AppCommand>,
+) {
+    let ds = DesignSystem::from_context(ui.ctx());
+    let desired = Vec2::new(ui.available_width(), 360.0);
+    let (rect, response) = ui.allocate_exact_size(desired, Sense::click_and_drag());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, ds.metrics.radius_control, ds.colors.surface_inset);
+    painter.rect_stroke(
+        rect,
+        ds.metrics.radius_control,
+        Stroke::new(1.0, ds.colors.border_control),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        rect.left_top() + Vec2::new(10.0, 8.0),
+        egui::Align2::LEFT_TOP,
+        "Original reference",
+        crate::TextRole::GraphLabel.font_id(),
+        ds.colors.text_muted,
+    );
+    painter.text(
+        rect.left_top() + Vec2::new(112.0, 8.0),
+        egui::Align2::LEFT_TOP,
+        "Processed / EQ transfer",
+        crate::TextRole::GraphLabel.font_id(),
+        IR_COLORS[slot.color_index as usize % IR_COLORS.len()],
+    );
+
+    for frequency in [
+        20.0, 50.0, 100.0, 200.0, 500.0, 1_000.0, 2_000.0, 5_000.0, 10_000.0, 20_000.0,
+    ] {
+        let x = eq_frequency_to_x(rect, frequency);
+        painter.vline(x, rect.y_range(), Stroke::new(1.0, ds.colors.border_subtle));
+    }
+    for gain in [-12.0, -6.0, 0.0, 6.0, 12.0] {
+        let y = eq_gain_to_y(rect, gain);
+        painter.hline(
+            rect.x_range(),
+            y,
+            Stroke::new(
+                if gain == 0.0 { 1.5 } else { 1.0 },
+                if gain == 0.0 {
+                    ds.colors.border_strong
+                } else {
+                    ds.colors.border_subtle
+                },
+            ),
+        );
+    }
+
+    let sample_rate = slot.sample_rate_hz.max(1.0) as u32;
+    let points = 256;
+    let curve = (0..points)
+        .map(|index| {
+            let t = index as f32 / (points - 1) as f32;
+            let frequency = ir_eq::MIN_FREQUENCY_HZ
+                * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t);
+            Pos2::new(
+                egui::lerp(rect.x_range(), t),
+                eq_gain_to_y(
+                    rect,
+                    ir_eq::response_db(&slot.equalizer, sample_rate, frequency),
+                ),
+            )
+        })
+        .collect::<Vec<_>>();
+    painter.add(egui::Shape::line(
+        curve,
+        Stroke::new(2.0, IR_COLORS[slot.color_index as usize % IR_COLORS.len()]),
+    ));
+
+    let pointer = response.interact_pointer_pos();
+    let hovered_band =
+        pointer.and_then(|position| nearest_eq_band(rect, &slot.equalizer.bands, position));
+    for band in &slot.equalizer.bands {
+        let position = eq_band_position(rect, band);
+        let is_selected = selected == Some(band.id);
+        let color = if !band.enabled {
+            ds.colors.text_muted
+        } else if is_selected {
+            ds.colors.accent_focus
+        } else {
+            IR_COLORS[slot.color_index as usize % IR_COLORS.len()]
+        };
+        painter.circle_filled(position, if is_selected { 7.0 } else { 5.5 }, color);
+        painter.circle_stroke(
+            position,
+            if is_selected { 9.0 } else { 7.0 },
+            Stroke::new(1.0, ds.colors.text_primary),
+        );
+    }
+
+    if response.clicked_by(egui::PointerButton::Primary) {
+        commands.push(AppCommand::SelectEqBand(slot.id, hovered_band));
+    }
+    if response.dragged_by(egui::PointerButton::Primary)
+        && let Some(band_id) = selected
+        && let Some(band) = slot.equalizer.bands.iter().find(|band| band.id == band_id)
+    {
+        let delta = ui.input(|input| input.pointer.delta());
+        let shift = ui.input(|input| input.modifiers.shift);
+        let horizontal = !shift || delta.x.abs() >= delta.y.abs();
+        let vertical = !shift || delta.y.abs() > delta.x.abs();
+        if horizontal && delta.x != 0.0 {
+            let octaves =
+                delta.x / rect.width() * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).log2();
+            commands.push(AppCommand::SetEqBandFrequency(
+                slot.id,
+                band_id,
+                band.frequency_hz * 2.0_f32.powf(octaves),
+            ));
+        }
+        if vertical && band.shape.has_gain() && delta.y != 0.0 {
+            commands.push(AppCommand::SetEqBandGain(
+                slot.id,
+                band_id,
+                band.gain_db - delta.y / rect.height() * 24.0,
+            ));
+        }
+    }
+    if response.hovered()
+        && let Some(band_id) = hovered_band
+    {
+        let scroll = ui.input(|input| input.smooth_scroll_delta.y);
+        if scroll != 0.0 {
+            ui.ctx()
+                .input_mut(|input| input.smooth_scroll_delta = Vec2::ZERO);
+            if let Some(band) = slot.equalizer.bands.iter().find(|band| band.id == band_id) {
+                if ui.input(|input| input.modifiers.shift) {
+                    if band.shape.has_gain() {
+                        commands.push(AppCommand::SetEqBandGain(
+                            slot.id,
+                            band_id,
+                            band.gain_db + scroll.signum() * 0.1,
+                        ));
+                    }
+                } else {
+                    commands.push(AppCommand::SetEqBandQ(
+                        slot.id,
+                        band_id,
+                        band.q * 2.0_f32.powf(scroll.signum() * 0.08),
+                    ));
+                }
+            }
+        }
+    }
+
+    let menu_position = pointer.unwrap_or(rect.center());
+    response.context_menu(|ui| {
+        if let Some(band_id) = hovered_band {
+            for shape in EqShape::ALL {
+                if ui.button(shape.label()).clicked() {
+                    commands.push(AppCommand::SetEqBandShape(slot.id, band_id, shape));
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.button("Delete band").clicked() {
+                commands.push(AppCommand::RemoveEqBand(slot.id, band_id));
+                ui.close();
+            }
+        } else if ui
+            .add_enabled(
+                slot.equalizer.bands.len() < ir_eq::MAX_BANDS,
+                egui::Button::new("Create Bell band here"),
+            )
+            .clicked()
+        {
+            commands.push(AppCommand::AddEqBand(
+                slot.id,
+                eq_x_to_frequency(rect, menu_position.x),
+                eq_y_to_gain(rect, menu_position.y),
+            ));
+            ui.close();
+        }
+    });
+}
+
+fn show_selected_band(
+    ui: &mut Ui,
+    ir_id: IrId,
+    slot: &ir_app::IrSlotState,
+    selected: Option<EqBandId>,
+    commands: &mut Vec<AppCommand>,
+) {
+    let selected_band =
+        selected.and_then(|id| slot.equalizer.bands.iter().find(|band| band.id == id));
+    ui.separator();
+    ui.add_enabled_ui(selected_band.is_some(), |ui| {
+        ui.horizontal(|ui| {
+            let Some(band) = selected_band else {
+                ui.label("Enabled: None");
+                ui.label("Type: None");
+                ui.label("Frequency: None");
+                ui.label("Gain: None");
+                ui.label("Q: None");
+                return;
+            };
+            let mut enabled = band.enabled;
+            if ui.checkbox(&mut enabled, "Enabled").changed() {
+                commands.push(AppCommand::SetEqBandEnabled(ir_id, band.id, enabled));
+            }
+            egui::ComboBox::from_id_salt(("eq_shape", ir_id.0, band.id.0))
+                .selected_text(band.shape.label())
+                .show_ui(ui, |ui| {
+                    for shape in EqShape::ALL {
+                        if ui
+                            .selectable_label(shape == band.shape, shape.label())
+                            .clicked()
+                        {
+                            commands.push(AppCommand::SetEqBandShape(ir_id, band.id, shape));
+                        }
+                    }
+                });
+            let mut frequency = band.frequency_hz;
+            if ui
+                .add(
+                    egui::DragValue::new(&mut frequency)
+                        .range(ir_eq::MIN_FREQUENCY_HZ..=ir_eq::MAX_FREQUENCY_HZ)
+                        .speed(1.0)
+                        .suffix(" Hz"),
+                )
+                .changed()
+            {
+                commands.push(AppCommand::SetEqBandFrequency(ir_id, band.id, frequency));
+            }
+            if band.shape.has_gain() {
+                let mut gain = band.gain_db;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut gain)
+                            .range(ir_eq::MIN_GAIN_DB..=ir_eq::MAX_GAIN_DB)
+                            .speed(0.1)
+                            .suffix(" dB"),
+                    )
+                    .changed()
+                {
+                    commands.push(AppCommand::SetEqBandGain(ir_id, band.id, gain));
+                }
+            } else {
+                ui.add_enabled(false, egui::Label::new("Gain: None"));
+            }
+            let mut q = band.q;
+            if ui
+                .add(
+                    egui::DragValue::new(&mut q)
+                        .range(ir_eq::MIN_Q..=ir_eq::MAX_Q)
+                        .speed(0.05)
+                        .prefix("Q "),
+                )
+                .changed()
+            {
+                commands.push(AppCommand::SetEqBandQ(ir_id, band.id, q));
+            }
+        });
+    });
+}
+
+fn eq_frequency_to_x(rect: Rect, frequency: f32) -> f32 {
+    let t = (frequency.clamp(ir_eq::MIN_FREQUENCY_HZ, ir_eq::MAX_FREQUENCY_HZ)
+        / ir_eq::MIN_FREQUENCY_HZ)
+        .ln()
+        / (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).ln();
+    egui::lerp(rect.x_range(), t)
+}
+
+fn eq_x_to_frequency(rect: Rect, x: f32) -> f32 {
+    let t = ((x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+    ir_eq::MIN_FREQUENCY_HZ * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t)
+}
+
+fn eq_gain_to_y(rect: Rect, gain: f32) -> f32 {
+    egui::lerp(
+        rect.y_range(),
+        ((12.0 - gain.clamp(-12.0, 12.0)) / 24.0).clamp(0.0, 1.0),
+    )
+}
+
+fn eq_y_to_gain(rect: Rect, y: f32) -> f32 {
+    12.0 - ((y - rect.top()) / rect.height()).clamp(0.0, 1.0) * 24.0
+}
+
+fn eq_band_position(rect: Rect, band: &ir_app::EqBand) -> Pos2 {
+    Pos2::new(
+        eq_frequency_to_x(rect, band.frequency_hz),
+        eq_gain_to_y(
+            rect,
+            if band.shape.has_gain() {
+                band.gain_db
+            } else {
+                0.0
+            },
+        ),
+    )
+}
+
+fn nearest_eq_band(rect: Rect, bands: &[ir_app::EqBand], position: Pos2) -> Option<EqBandId> {
+    bands
+        .iter()
+        .filter_map(|band| {
+            let distance = eq_band_position(rect, band).distance(position);
+            (distance <= 14.0).then_some((band.id, distance))
+        })
+        .min_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(id, _)| id)
+}
+
+fn estimate_eq_peak_db(slot: &ir_app::IrSlotState) -> f32 {
+    let source_peak = slot
+        .waveform
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+    if source_peak <= f32::MIN_POSITIVE {
+        return -144.0;
+    }
+    let rate = slot.sample_rate_hz.max(1.0) as u32;
+    let max_eq = (0..180)
+        .map(|index| {
+            let t = index as f32 / 179.0;
+            let frequency = ir_eq::MIN_FREQUENCY_HZ
+                * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t);
+            ir_eq::response_db(&slot.equalizer, rate, frequency)
+        })
+        .fold(f32::NEG_INFINITY, f32::max);
+    20.0 * source_peak.log10() + max_eq
 }
 
 fn map_rack_action(action: IrRackAction) -> AppCommand {
@@ -685,5 +1137,33 @@ fn index_to_analysis_tab(index: usize) -> AnalysisTab {
         2 => AnalysisTab::Phase,
         3 => AnalysisTab::Spectrum,
         _ => AnalysisTab::Frequency,
+    }
+}
+
+#[cfg(test)]
+mod equalizer_tests {
+    use super::*;
+
+    #[test]
+    fn logarithmic_frequency_mapping_round_trips() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 360.0));
+        for frequency in [20.0, 80.0, 1_000.0, 8_000.0, 20_000.0] {
+            let restored = eq_x_to_frequency(rect, eq_frequency_to_x(rect, frequency));
+            assert!((restored / frequency - 1.0).abs() < 1.0e-5);
+        }
+    }
+
+    #[test]
+    fn no_gain_shapes_are_drawn_on_the_zero_db_axis() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 360.0));
+        let band = ir_app::EqBand {
+            id: EqBandId(1),
+            enabled: true,
+            shape: EqShape::Notch,
+            frequency_hz: 1_000.0,
+            gain_db: 12.0,
+            q: 2.0,
+        };
+        assert_eq!(eq_band_position(rect, &band).y, eq_gain_to_y(rect, 0.0));
     }
 }

@@ -3,8 +3,8 @@
 This document describes the current implementation and the boundaries that the
 planned VST3 and CLAP adapters must preserve. Product requirements belong in
 [product-spec.md](product-spec.md); detailed sample-rate and export behavior
-belongs in [audio-processing.md](audio-processing.md). The next planned
-per-IR equalizer milestone is specified in [equalizer.md](equalizer.md).
+belongs in [audio-processing.md](audio-processing.md). The implemented per-IR
+equalizer is specified in [equalizer.md](equalizer.md).
 
 ## System shape
 
@@ -35,6 +35,7 @@ those side effects and publish the next snapshot.
 | `crates/ir-app` | Serializable state, commands, backend trait, events, preset migrations, and mock backend |
 | `crates/ir-core` | Planar floating-point buffers, WAV I/O, resampling, analysis, and offline mix rendering |
 | `crates/ir-dsp` | Uniform partitioned FFT convolution and the allocation-free real-time mix engine |
+| `crates/ir-eq` | Serializable EQ model, `biquad` coefficient design, response evaluation, and shared filtering |
 | `crates/ir-native` | CPAL devices and streams, background work, dialogs, presets, and `NativeAudioBackend` |
 | `crates/ir-ui` | Design system, reusable widgets/cards, responsive `AppPage`, native window integration, and visual tests |
 | `tools/ui-gallery` | Interactive isolated widget and card reference |
@@ -162,11 +163,10 @@ Ordinary mix changes do not rebuild all convolvers:
 Balance Mode is implemented in the application model. Percentages are kept at
 100% and synchronized to dB gains before parameters reach the engine.
 
-## Planned per-IR equalizer
+## Per-IR equalizer
 
-The equalizer is a first-release requirement and the next implementation
-milestone, but it is not part of the current processing path described above.
-Each IR slot will own a non-destructive ordered dynamic band list, complete-EQ
+The equalizer is implemented as a first-release feature. Each IR slot owns a
+non-destructive ordered dynamic band list, complete-EQ
 bypass, and EQ output gain. The planned monitoring path is:
 
 ```text
@@ -178,13 +178,13 @@ source
    → sum → output gain → bypass → limiter
 ```
 
-Filter coefficients and replacement chains will be prepared and validated away
+Filter coefficients and replacement chains are prepared and validated away
 from the callback, then transferred through the existing real-time-safe control
 boundary. Parameter and topology changes must be smoothed or crossfaded without
 rebuilding convolution state. Stereo channels share controls but retain
 independent filter history.
 
-The equalizer will use the existing right-edge `SlidingPane` over the application
+The equalizer uses the existing right-edge `SlidingPane` over the application
 body, leaving persistent application bars visible. It will request
 `min(920 points, available body width)` rather than the component's default
 width. It will remain a controlled UI surface driven by `AppSnapshot` and typed
@@ -217,7 +217,7 @@ runs entirely on the background worker:
 active native-rate sources
     → resample each source directly to export rate
     → optional per-IR normalization
-    → planned per-IR EQ cascade and EQ output gain
+    → per-IR EQ cascade and EQ output gain
     → delay and polarity
     → gain and constant-power pan
     → sum and output gain
@@ -240,12 +240,13 @@ Standalone presets are JSON files under:
 %APPDATA%\IR Mixer Pro\Presets
 ```
 
-The current preset schema is version 3:
+The current preset schema is version 4:
 
 - Version 1 stored basic project and path state.
 - Version 2 added `IrFileReference` with original path, optional preset-relative
   path, file size, and decoded-audio fingerprint.
 - Version 3 added project Balance Mode and per-slot balance percentages.
+- Version 4 added per-IR EQ bypass, output gain, and stable-ID dynamic bands.
 
 Versions 1 and 2 migrate in memory. Unsupported future versions fail explicitly.
 Loading first tries an existing stored path, then a preset-relative reference,
@@ -255,9 +256,7 @@ mix settings survive.
 Device, channel, monitoring, runtime loading state, waveforms, export destination,
 and dirty state are transient and excluded from portable preset serialization.
 
-Implementing the equalizer will require a new preset schema version containing
-per-IR EQ bypass, output gain, and ordered stable-ID band state. Existing presets
-must migrate to an empty transparent EQ chain; missing-file slots must retain
+Versions 1–3 migrate to an empty transparent EQ chain. Missing-file slots retain
 their EQ state.
 
 ## Planned plugin adapters

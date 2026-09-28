@@ -107,6 +107,10 @@ persistent application bars visible. A new or migrated IR has an empty
 transparent EQ chain and unity EQ output gain. EQ never normalizes or compensates
 gain implicitly.
 
+Each IR supports up to 16 bands. Frequency spans 20 Hz–20 kHz, band and EQ
+output gain span −12 dB to +12 dB, and Q spans 0.1–12 with a default of 1.0.
+High-pass and low-pass shapes are fixed second-order 12 dB/octave sections.
+
 Equalizer state must affect preview, live monitoring, analysis, presets, plugin
 session state, and mixed-IR export consistently. Detailed behavior is specified
 in [equalizer.md](equalizer.md).

@@ -351,6 +351,7 @@ fn render_sources(
     render_mix(&borrowed, settings)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare(
     id: IrId,
     path: PathBuf,
@@ -483,6 +484,7 @@ mod tests {
                 ..EngineConfig::default()
             },
             SlotParameters::default(),
+            ir_eq::EqualizerState::default(),
             &results_tx,
         );
         match results_rx.recv().expect("worker should return a result") {

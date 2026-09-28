@@ -1,6 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ir_core::{AudioBuffer, SampleRate, analyze_frequency_response};
-use ir_dsp::{DspEngine, EngineConfig, MeterSnapshot, PreparedEqualizer, PreparedSlot, SlotParameters};
+use ir_dsp::{
+    DspEngine, EngineConfig, MeterSnapshot, PreparedEqualizer, PreparedSlot, SlotParameters,
+};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::{
     Arc, Mutex,
@@ -697,6 +699,7 @@ impl OutputProcessor {
                     .engine
                     .replace_slot_equalizer(id, equalizer)
                     .ok()
+                    .flatten()
                     .map(Retired::Equalizer),
                 RuntimeCommand::RemoveSlot(id) => {
                     self.engine.remove_slot(id).ok().map(Retired::Slot)
@@ -894,6 +897,16 @@ impl OutputProcessor {
         {
             self.output_left.fill(0.0);
             self.output_right.fill(0.0);
+        }
+        if self.pending_retired.is_none() {
+            while let Some(equalizer) = self.engine.take_retired_equalizer() {
+                if let Err(rtrb::PushError::Full(value)) =
+                    self.retired.push(Retired::Equalizer(equalizer))
+                {
+                    self.pending_retired = Some(value);
+                    break;
+                }
+            }
         }
         let meters = self.engine.meters();
         self.metrics

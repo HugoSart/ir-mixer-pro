@@ -8,7 +8,7 @@ mod backend;
 mod mock_backend;
 mod state;
 
-pub use ir_eq::{EqBand, EqBandId, EqShape, EqualizerState};
 pub use backend::{AudioBackend, BackendEvent};
+pub use ir_eq::{EqBand, EqBandId, EqShape, EqualizerState};
 pub use mock_backend::MockAudioBackend;
 pub use state::*;

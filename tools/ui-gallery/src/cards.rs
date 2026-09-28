@@ -279,6 +279,7 @@ impl IrRackDemo {
             IrRackAction::SetMute { id, muted } => {
                 with_slot(&mut self.slots, id, |slot| slot.muted = muted)
             }
+            IrRackAction::EditEqualizer { id } => self.selected = Some(id),
         }
     }
 

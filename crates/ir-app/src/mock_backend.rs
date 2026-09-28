@@ -207,34 +207,65 @@ impl MockAudioBackend {
             SetIrMute(id, value) => self.with_slot(id, |slot| slot.muted = value),
             SelectEqBand(id, band) => self.snapshot.selected_eq = band.map(|band| (id, band)),
             AddEqBand(id, frequency, gain) => {
-                if let Some(slot) = self.slot_mut(id) {
-                    if slot.equalizer.bands.len() < ir_eq::MAX_BANDS {
-                        let next = slot.equalizer.bands.iter().map(|band| band.id.0).max().unwrap_or(0) + 1;
-                        let band = EqBand::bell(EqBandId(next), frequency, gain);
-                        slot.equalizer.bands.push(band);
-                        self.snapshot.selected_eq = Some((id, EqBandId(next)));
-                    }
+                if let Some(slot) = self.slot_mut(id)
+                    && slot.equalizer.bands.len() < ir_eq::MAX_BANDS
+                {
+                    let next = slot
+                        .equalizer
+                        .bands
+                        .iter()
+                        .map(|band| band.id.0)
+                        .max()
+                        .unwrap_or(0)
+                        + 1;
+                    let band = EqBand::bell(EqBandId(next), frequency, gain);
+                    slot.equalizer.bands.push(band);
+                    self.snapshot.selected_eq = Some((id, EqBandId(next)));
                 }
             }
             RemoveEqBand(id, band) => {
-                self.with_slot(id, |slot| slot.equalizer.bands.retain(|item| item.id != band));
-                if self.snapshot.selected_eq == Some((id, band)) { self.snapshot.selected_eq = None; }
+                self.with_slot(id, |slot| {
+                    slot.equalizer.bands.retain(|item| item.id != band)
+                });
+                if self.snapshot.selected_eq == Some((id, band)) {
+                    self.snapshot.selected_eq = None;
+                }
             }
-            SetEqBandEnabled(id, band, value) => self.with_eq_band(id, band, |item| item.enabled = value),
-            SetEqBandShape(id, band, value) => self.with_eq_band(id, band, |item| item.shape = value),
-            SetEqBandFrequency(id, band, value) => self.with_eq_band(id, band, |item| item.frequency_hz = value.clamp(ir_eq::MIN_FREQUENCY_HZ, ir_eq::MAX_FREQUENCY_HZ)),
-            SetEqBandGain(id, band, value) => self.with_eq_band(id, band, |item| item.gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)),
-            SetEqBandQ(id, band, value) => self.with_eq_band(id, band, |item| item.q = value.clamp(ir_eq::MIN_Q, ir_eq::MAX_Q)),
+            SetEqBandEnabled(id, band, value) => {
+                self.with_eq_band(id, band, |item| item.enabled = value)
+            }
+            SetEqBandShape(id, band, value) => {
+                self.with_eq_band(id, band, |item| item.shape = value)
+            }
+            SetEqBandFrequency(id, band, value) => self.with_eq_band(id, band, |item| {
+                item.frequency_hz = value.clamp(ir_eq::MIN_FREQUENCY_HZ, ir_eq::MAX_FREQUENCY_HZ)
+            }),
+            SetEqBandGain(id, band, value) => self.with_eq_band(id, band, |item| {
+                item.gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)
+            }),
+            SetEqBandQ(id, band, value) => self.with_eq_band(id, band, |item| {
+                item.q = value.clamp(ir_eq::MIN_Q, ir_eq::MAX_Q)
+            }),
             SetEqBypassed(id, value) => self.with_slot(id, |slot| slot.equalizer.bypassed = value),
-            SetEqOutputGainDb(id, value) => self.with_slot(id, |slot| slot.equalizer.output_gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)),
+            SetEqOutputGainDb(id, value) => self.with_slot(id, |slot| {
+                slot.equalizer.output_gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)
+            }),
             ResetEq(id) => self.with_slot(id, |slot| slot.equalizer = EqualizerState::default()),
             CopyEq(id) => {
-                self.eq_clipboard = self.snapshot.project.ir_slots.iter().find(|slot| slot.id == id).map(|slot| slot.equalizer.clone());
+                self.eq_clipboard = self
+                    .snapshot
+                    .project
+                    .ir_slots
+                    .iter()
+                    .find(|slot| slot.id == id)
+                    .map(|slot| slot.equalizer.clone());
                 self.snapshot.eq_clipboard_available = self.eq_clipboard.is_some();
             }
             PasteEq(id) => {
                 if let Some(mut equalizer) = self.eq_clipboard.clone() {
-                    for (index, band) in equalizer.bands.iter_mut().enumerate() { band.id = EqBandId(index as u64 + 1); }
+                    for (index, band) in equalizer.bands.iter_mut().enumerate() {
+                        band.id = EqBandId(index as u64 + 1);
+                    }
                     self.with_slot(id, |slot| slot.equalizer = equalizer);
                     self.snapshot.selected_eq = None;
                 }
@@ -273,7 +304,10 @@ impl MockAudioBackend {
     }
 
     fn with_eq_band(&mut self, id: IrId, band: EqBandId, update: impl FnOnce(&mut EqBand)) {
-        if let Some(item) = self.slot_mut(id).and_then(|slot| slot.equalizer.bands.iter_mut().find(|item| item.id == band)) {
+        if let Some(item) = self
+            .slot_mut(id)
+            .and_then(|slot| slot.equalizer.bands.iter_mut().find(|item| item.id == band))
+        {
             update(item);
             item.sanitize();
         }
@@ -590,6 +624,40 @@ fn choices(items: &[(&str, &str)]) -> Vec<Choice> {
 }
 
 fn demo_slot(id: u64, filename: &str, gain_db: f32, delay_samples: i32) -> IrSlotState {
+    let equalizer = if id == 1 {
+        EqualizerState {
+            bypassed: false,
+            output_gain_db: -0.5,
+            bands: vec![
+                EqBand {
+                    id: EqBandId(1),
+                    enabled: true,
+                    shape: crate::EqShape::HighPass,
+                    frequency_hz: 78.0,
+                    gain_db: 0.0,
+                    q: 0.71,
+                },
+                EqBand {
+                    id: EqBandId(2),
+                    enabled: true,
+                    shape: crate::EqShape::Bell,
+                    frequency_hz: 3_200.0,
+                    gain_db: -2.5,
+                    q: 1.4,
+                },
+                EqBand {
+                    id: EqBandId(3),
+                    enabled: true,
+                    shape: crate::EqShape::HighShelf,
+                    frequency_hz: 8_500.0,
+                    gain_db: -1.5,
+                    q: 0.7,
+                },
+            ],
+        }
+    } else {
+        EqualizerState::default()
+    };
     IrSlotState {
         id: IrId(id),
         filename: filename.into(),
@@ -613,7 +681,7 @@ fn demo_slot(id: u64, filename: &str, gain_db: f32, delay_samples: i32) -> IrSlo
         normalize: id <= 2,
         soloed: false,
         muted: false,
-        equalizer: EqualizerState::default(),
+        equalizer,
         load_state: ContentState::Ready,
         waveform: waveform(id as f32 * 0.71, 180),
     }
