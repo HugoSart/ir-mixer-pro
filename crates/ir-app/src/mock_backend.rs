@@ -1,8 +1,8 @@
 use crate::{
     AnalysisState, AnalysisTab, AnalysisTrace, AppCommand, AppSnapshot, AudioBackend, BackendEvent,
-    Choice, ContentState, EqBand, EqBandId, EqualizerState, ExportSettings, ExportState,
-    FileLoadActivity, IrId, IrSlotState, OptionId, OutputState, ProjectState, SourceMode,
-    SourceState, TransportState,
+    Choice, ContentState, EqBand, EqBandId, EqualizerState, EqualizerTarget, ExportSettings,
+    ExportState, FileLoadActivity, IrId, IrSlotState, OptionId, OutputState, ProjectState,
+    SourceMode, SourceState, TransportState,
 };
 
 pub struct MockAudioBackend {
@@ -205,13 +205,14 @@ impl MockAudioBackend {
             SetIrNormalize(id, value) => self.with_slot(id, |slot| slot.normalize = value),
             SetIrSolo(id, value) => self.with_slot(id, |slot| slot.soloed = value),
             SetIrMute(id, value) => self.with_slot(id, |slot| slot.muted = value),
-            SelectEqBand(id, band) => self.snapshot.selected_eq = band.map(|band| (id, band)),
-            AddEqBand(id, frequency, gain) => {
-                if let Some(slot) = self.slot_mut(id)
-                    && slot.equalizer.bands.len() < ir_eq::MAX_BANDS
+            SelectEqBand(target, band) => {
+                self.snapshot.selected_eq = band.map(|band| (target, band))
+            }
+            AddEqBand(target, frequency, gain) => {
+                let added = if let Some(equalizer) = self.equalizer_mut(target)
+                    && equalizer.bands.len() < ir_eq::MAX_BANDS
                 {
-                    let next = slot
-                        .equalizer
+                    let next = equalizer
                         .bands
                         .iter()
                         .map(|band| band.id.0)
@@ -219,54 +220,57 @@ impl MockAudioBackend {
                         .unwrap_or(0)
                         + 1;
                     let band = EqBand::bell(EqBandId(next), frequency, gain);
-                    slot.equalizer.bands.push(band);
-                    self.snapshot.selected_eq = Some((id, EqBandId(next)));
+                    equalizer.bands.push(band);
+                    Some(EqBandId(next))
+                } else {
+                    None
+                };
+                if let Some(band) = added {
+                    self.snapshot.selected_eq = Some((target, band));
                 }
             }
-            RemoveEqBand(id, band) => {
-                self.with_slot(id, |slot| {
-                    slot.equalizer.bands.retain(|item| item.id != band)
+            RemoveEqBand(target, band) => {
+                self.with_equalizer(target, |equalizer| {
+                    equalizer.bands.retain(|item| item.id != band)
                 });
-                if self.snapshot.selected_eq == Some((id, band)) {
+                if self.snapshot.selected_eq == Some((target, band)) {
                     self.snapshot.selected_eq = None;
                 }
             }
-            SetEqBandEnabled(id, band, value) => {
-                self.with_eq_band(id, band, |item| item.enabled = value)
+            SetEqBandEnabled(target, band, value) => {
+                self.with_eq_band(target, band, |item| item.enabled = value)
             }
-            SetEqBandShape(id, band, value) => {
-                self.with_eq_band(id, band, |item| item.shape = value)
+            SetEqBandShape(target, band, value) => {
+                self.with_eq_band(target, band, |item| item.shape = value)
             }
-            SetEqBandFrequency(id, band, value) => self.with_eq_band(id, band, |item| {
+            SetEqBandFrequency(target, band, value) => self.with_eq_band(target, band, |item| {
                 item.frequency_hz = value.clamp(ir_eq::MIN_FREQUENCY_HZ, ir_eq::MAX_FREQUENCY_HZ)
             }),
-            SetEqBandGain(id, band, value) => self.with_eq_band(id, band, |item| {
+            SetEqBandGain(target, band, value) => self.with_eq_band(target, band, |item| {
                 item.gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)
             }),
-            SetEqBandQ(id, band, value) => self.with_eq_band(id, band, |item| {
+            SetEqBandQ(target, band, value) => self.with_eq_band(target, band, |item| {
                 item.q = value.clamp(ir_eq::MIN_Q, ir_eq::MAX_Q)
             }),
-            SetEqBypassed(id, value) => self.with_slot(id, |slot| slot.equalizer.bypassed = value),
-            SetEqOutputGainDb(id, value) => self.with_slot(id, |slot| {
-                slot.equalizer.output_gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)
+            SetEqBypassed(target, value) => {
+                self.with_equalizer(target, |equalizer| equalizer.bypassed = value)
+            }
+            SetEqOutputGainDb(target, value) => self.with_equalizer(target, |equalizer| {
+                equalizer.output_gain_db = value.clamp(ir_eq::MIN_GAIN_DB, ir_eq::MAX_GAIN_DB)
             }),
-            ResetEq(id) => self.with_slot(id, |slot| slot.equalizer = EqualizerState::default()),
-            CopyEq(id) => {
-                self.eq_clipboard = self
-                    .snapshot
-                    .project
-                    .ir_slots
-                    .iter()
-                    .find(|slot| slot.id == id)
-                    .map(|slot| slot.equalizer.clone());
+            ResetEq(target) => {
+                self.with_equalizer(target, |equalizer| *equalizer = EqualizerState::default())
+            }
+            CopyEq(target) => {
+                self.eq_clipboard = self.equalizer(target).cloned();
                 self.snapshot.eq_clipboard_available = self.eq_clipboard.is_some();
             }
-            PasteEq(id) => {
+            PasteEq(target) => {
                 if let Some(mut equalizer) = self.eq_clipboard.clone() {
                     for (index, band) in equalizer.bands.iter_mut().enumerate() {
                         band.id = EqBandId(index as u64 + 1);
                     }
-                    self.with_slot(id, |slot| slot.equalizer = equalizer);
+                    self.with_equalizer(target, |destination| *destination = equalizer);
                     self.snapshot.selected_eq = None;
                 }
             }
@@ -303,10 +307,52 @@ impl MockAudioBackend {
         }
     }
 
-    fn with_eq_band(&mut self, id: IrId, band: EqBandId, update: impl FnOnce(&mut EqBand)) {
+    fn equalizer(&self, target: EqualizerTarget) -> Option<&EqualizerState> {
+        match target {
+            EqualizerTarget::Global => Some(&self.snapshot.project.global_equalizer),
+            EqualizerTarget::Ir(id) => self
+                .snapshot
+                .project
+                .ir_slots
+                .iter()
+                .find(|slot| slot.id == id)
+                .map(|slot| &slot.equalizer),
+        }
+    }
+
+    fn equalizer_mut(&mut self, target: EqualizerTarget) -> Option<&mut EqualizerState> {
+        match target {
+            EqualizerTarget::Global => Some(&mut self.snapshot.project.global_equalizer),
+            EqualizerTarget::Ir(id) => self
+                .snapshot
+                .project
+                .ir_slots
+                .iter_mut()
+                .find(|slot| slot.id == id)
+                .map(|slot| &mut slot.equalizer),
+        }
+    }
+
+    fn with_equalizer(
+        &mut self,
+        target: EqualizerTarget,
+        update: impl FnOnce(&mut EqualizerState),
+    ) {
+        if let Some(equalizer) = self.equalizer_mut(target) {
+            update(equalizer);
+            equalizer.sanitize();
+        }
+    }
+
+    fn with_eq_band(
+        &mut self,
+        target: EqualizerTarget,
+        band: EqBandId,
+        update: impl FnOnce(&mut EqBand),
+    ) {
         if let Some(item) = self
-            .slot_mut(id)
-            .and_then(|slot| slot.equalizer.bands.iter_mut().find(|item| item.id == band))
+            .equalizer_mut(target)
+            .and_then(|equalizer| equalizer.bands.iter_mut().find(|item| item.id == band))
         {
             update(item);
             item.sanitize();
@@ -408,6 +454,25 @@ fn refresh_mock_analysis(snapshot: &mut AppSnapshot) {
     let slots = &snapshot.project.ir_slots;
     let any_solo = slots.iter().any(|slot| slot.soloed);
     let output_gain = snapshot.project.output.gain_db;
+    let sample_rate = snapshot
+        .project
+        .source
+        .sample_rate
+        .0
+        .parse::<u32>()
+        .unwrap_or(48_000);
+    let global_response = (0..180)
+        .map(|sample| {
+            let t = sample as f32 / 179.0;
+            let frequency = ir_eq::MIN_FREQUENCY_HZ
+                * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t);
+            ir_eq::response_db(
+                &snapshot.project.global_equalizer,
+                sample_rate,
+                frequency,
+            )
+        })
+        .collect::<Vec<_>>();
     let mut combined_linear = vec![0.0_f32; 180];
     let mut combined_phase = vec![0.0_f32; 180];
     let mut active_count = 0.0_f32;
@@ -421,7 +486,10 @@ fn refresh_mock_analysis(snapshot: &mut AppSnapshot) {
         let frequency_values = (0..180)
             .map(|sample| {
                 let x = sample as f32 / 179.0;
-                level_db + (x * 7.0 + index as f32 * 0.8).sin() * 3.0 - x.powi(5) * 18.0
+                level_db
+                    + (x * 7.0 + index as f32 * 0.8).sin() * 3.0
+                    - x.powi(5) * 18.0
+                    + global_response[sample]
             })
             .collect::<Vec<_>>();
         let phase_values = (0..180)
@@ -477,7 +545,12 @@ fn refresh_mock_analysis(snapshot: &mut AppSnapshot) {
         emphasized: true,
     });
 
-    let output_scale = 10.0_f32.powf(output_gain / 20.0);
+    let global_output_gain = if snapshot.project.global_equalizer.bypassed {
+        0.0
+    } else {
+        snapshot.project.global_equalizer.output_gain_db
+    };
+    let output_scale = 10.0_f32.powf((output_gain + global_output_gain) / 20.0);
     snapshot.combined_waveform = (0..320)
         .map(|sample| {
             slots
@@ -521,6 +594,7 @@ fn demo_snapshot() -> AppSnapshot {
         ],
         selected_ir: Some(IrId(1)),
         balance_mode: false,
+        global_equalizer: EqualizerState::default(),
         source: SourceState {
             mode: SourceMode::Preview,
             filename: Some("guitar_DI.wav".into()),

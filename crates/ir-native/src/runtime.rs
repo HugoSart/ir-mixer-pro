@@ -133,6 +133,7 @@ pub enum RuntimeError {
 pub enum RuntimeCommand {
     ReplaceSlot(Box<PreparedSlot>),
     ReplaceSlotEqualizer(u64, Box<PreparedEqualizer>),
+    ReplaceGlobalEqualizer(Box<PreparedEqualizer>),
     RemoveSlot(u64),
     SetSlotParameters(u64, SlotParameters),
     SetOutputGain(f32),
@@ -700,6 +701,10 @@ impl OutputProcessor {
                     .replace_slot_equalizer(id, equalizer)
                     .ok()
                     .flatten()
+                    .map(Retired::Equalizer),
+                RuntimeCommand::ReplaceGlobalEqualizer(equalizer) => self
+                    .engine
+                    .replace_global_equalizer(equalizer)
                     .map(Retired::Equalizer),
                 RuntimeCommand::RemoveSlot(id) => {
                     self.engine.remove_slot(id).ok().map(Retired::Slot)

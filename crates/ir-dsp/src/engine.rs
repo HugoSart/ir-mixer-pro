@@ -92,6 +92,14 @@ impl PreparedEqualizer {
     fn seed_from(&mut self, previous: &Self) {
         self.processor.seed_from(&previous.processor);
     }
+
+    fn transparent() -> Self {
+        Self {
+            processor: EqProcessor::default(),
+            output_gain: 1.0,
+            bypassed: false,
+        }
+    }
 }
 
 pub struct PreparedSlot {
@@ -211,6 +219,12 @@ pub struct DspEngine {
     // thread without allocating or moving their large FFT state.
     #[allow(clippy::vec_box)]
     slots: Vec<Box<PreparedSlot>>,
+    global_equalizer: Box<PreparedEqualizer>,
+    previous_global_equalizer: Option<Box<PreparedEqualizer>>,
+    global_eq_fade_position: usize,
+    global_eq_fade_duration: usize,
+    global_eq_output_gain: SmoothedValue,
+    global_eq_bypass_mix: SmoothedValue,
     output_gain: SmoothedValue,
     bypass_mix: SmoothedValue,
     limiter_enabled: bool,
@@ -234,6 +248,12 @@ impl DspEngine {
         Self {
             config,
             slots: Vec::with_capacity(config.max_active_irs),
+            global_equalizer: Box::new(PreparedEqualizer::transparent()),
+            previous_global_equalizer: None,
+            global_eq_fade_position: smoothing,
+            global_eq_fade_duration: smoothing,
+            global_eq_output_gain: SmoothedValue::new(1.0, smoothing),
+            global_eq_bypass_mix: SmoothedValue::new(0.0, smoothing),
             output_gain: SmoothedValue::new(1.0, smoothing),
             bypass_mix: SmoothedValue::new(0.0, smoothing),
             limiter_enabled: true,
@@ -294,7 +314,26 @@ impl DspEngine {
             .ok_or(EngineError::UnknownSlot(id))?;
         Ok(slot.replace_equalizer(replacement))
     }
+    pub fn replace_global_equalizer(
+        &mut self,
+        mut replacement: Box<PreparedEqualizer>,
+    ) -> Option<Box<PreparedEqualizer>> {
+        replacement.seed_from(&self.global_equalizer);
+        self.global_eq_output_gain
+            .set_target(replacement.output_gain);
+        self.global_eq_bypass_mix
+            .set_target(if replacement.bypassed { 1.0 } else { 0.0 });
+        let old_current = std::mem::replace(&mut self.global_equalizer, replacement);
+        let retired = self.previous_global_equalizer.replace(old_current);
+        self.global_eq_fade_position = 0;
+        retired
+    }
     pub fn take_retired_equalizer(&mut self) -> Option<Box<PreparedEqualizer>> {
+        if self.global_eq_fade_position >= self.global_eq_fade_duration
+            && self.previous_global_equalizer.is_some()
+        {
+            return self.previous_global_equalizer.take();
+        }
         self.slots.iter_mut().find_map(|slot| {
             (slot.eq_fade_position >= slot.eq_fade_duration)
                 .then(|| slot.previous_equalizer.take())
@@ -420,21 +459,51 @@ impl DspEngine {
         let mut peak = [0.0_f32; 2];
         let mut clipped = false;
         for index in 0..block {
-            let gain = self.output_gain.next();
-            let dry = self.bypass_mix.next();
             // An empty/fully inaudible rack is a transparent dry path rather
             // than silence. This keeps preview and live monitoring useful
             // before an IR is loaded or while every slot is disabled/muted.
-            let wet_left = if any_audible_slot {
+            let mixed_left = if any_audible_slot {
                 self.sum_left[index]
             } else {
                 input_left[index]
-            } * gain;
-            let wet_right = if any_audible_slot {
+            };
+            let mixed_right = if any_audible_slot {
                 self.sum_right[index]
             } else {
                 input_right[index]
-            } * gain;
+            };
+            let (eq_left, eq_right) = self
+                .global_equalizer
+                .processor
+                .process_stereo(mixed_left, mixed_right);
+            let (eq_left, eq_right) =
+                if let Some(previous) = &mut self.previous_global_equalizer {
+                    let (old_left, old_right) = previous
+                        .processor
+                        .process_stereo(mixed_left, mixed_right);
+                    let t = (self.global_eq_fade_position as f32
+                        / self.global_eq_fade_duration as f32)
+                        .clamp(0.0, 1.0);
+                    if self.global_eq_fade_position < self.global_eq_fade_duration {
+                        self.global_eq_fade_position += 1;
+                    }
+                    (
+                        old_left + (eq_left - old_left) * t,
+                        old_right + (eq_right - old_right) * t,
+                    )
+                } else {
+                    (eq_left, eq_right)
+                };
+            let eq_gain = self.global_eq_output_gain.next();
+            let eq_bypass = self.global_eq_bypass_mix.next();
+            let wet_left =
+                eq_left * eq_gain + (mixed_left - eq_left * eq_gain) * eq_bypass;
+            let wet_right =
+                eq_right * eq_gain + (mixed_right - eq_right * eq_gain) * eq_bypass;
+            let gain = self.output_gain.next();
+            let dry = self.bypass_mix.next();
+            let wet_left = wet_left * gain;
+            let wet_right = wet_right * gain;
             let left = wet_left + (input_left[index] - wet_left) * dry;
             let right = wet_right + (input_right[index] - wet_right) * dry;
             let (left, right) = self.limiter.process(left, right, self.limiter_enabled);

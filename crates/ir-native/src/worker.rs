@@ -47,12 +47,14 @@ pub(crate) enum WorkerRequest {
     Export {
         path: PathBuf,
         sources: Vec<ExportSource>,
+        global_equalizer: ir_eq::EqualizerState,
         settings: RenderSettings,
         encoding: WavEncoding,
     },
     Analyze {
         generation: u64,
         sources: Vec<ExportSource>,
+        global_equalizer: ir_eq::EqualizerState,
         settings: RenderSettings,
     },
     SavePreset {
@@ -186,6 +188,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
         WorkerRequest::Export {
             path,
             sources,
+            global_equalizer,
             settings,
             encoding,
         } => {
@@ -204,7 +207,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
                     equalizer: &source.equalizer,
                 })
                 .collect();
-            match render_mix(&borrowed, settings) {
+            match render_mix(&borrowed, &global_equalizer, settings) {
                 Ok(audio) => match write_wav(&path, &audio, encoding) {
                     Ok(()) => {
                         let _ = results.send(WorkerResult::ExportComplete(path));
@@ -221,12 +224,17 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
         WorkerRequest::Analyze {
             generation,
             sources,
+            global_equalizer,
             settings,
         } => {
             let mut frequency = Vec::new();
             let mut phase = Vec::new();
             for source in &sources {
-                if let Ok(audio) = render_sources(std::slice::from_ref(source), settings) {
+                if let Ok(audio) = render_sources(
+                    std::slice::from_ref(source),
+                    &global_equalizer,
+                    settings,
+                ) {
                     let analysis = analyze_frequency_response(&audio, 180);
                     frequency.push(AnalysisTrace {
                         label: source.label.clone(),
@@ -242,7 +250,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
                     });
                 }
             }
-            if let Ok(audio) = render_sources(&sources, settings) {
+            if let Ok(audio) = render_sources(&sources, &global_equalizer, settings) {
                 let analysis = analyze_frequency_response(&audio, 180);
                 frequency.push(AnalysisTrace {
                     label: "Sum (Mixed)".into(),
@@ -331,6 +339,7 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
 
 fn render_sources(
     sources: &[ExportSource],
+    global_equalizer: &ir_eq::EqualizerState,
     settings: RenderSettings,
 ) -> Result<AudioBuffer, ir_core::RenderError> {
     let borrowed: Vec<_> = sources
@@ -348,7 +357,7 @@ fn render_sources(
             equalizer: &source.equalizer,
         })
         .collect();
-    render_mix(&borrowed, settings)
+    render_mix(&borrowed, global_equalizer, settings)
 }
 
 #[allow(clippy::too_many_arguments)]

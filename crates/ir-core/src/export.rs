@@ -43,6 +43,7 @@ pub enum RenderError {
 
 pub fn render_mix(
     sources: &[MixSource<'_>],
+    global_equalizer: &EqualizerState,
     settings: RenderSettings,
 ) -> Result<AudioBuffer, RenderError> {
     let any_solo = sources.iter().any(|source| source.enabled && source.soloed);
@@ -67,23 +68,34 @@ pub fn render_mix(
         natural_frames = natural_frames.max(source.delay_samples + audio.frame_count());
         prepared.push((source, audio));
     }
-    let frames = settings.frames.unwrap_or(natural_frames);
-    let mut left = vec![0.0_f32; frames];
-    let mut right = vec![0.0_f32; frames];
-    let output_gain = db_to_gain(settings.output_gain_db);
+    let mut left = vec![0.0_f32; natural_frames];
+    let mut right = vec![0.0_f32; natural_frames];
     for (source, audio) in prepared {
         let (source_left, source_right) = audio.to_stereo();
         let polarity = if source.polarity_inverted { -1.0 } else { 1.0 };
-        let gain = db_to_gain(source.gain_db) * polarity * output_gain;
+        let gain = db_to_gain(source.gain_db) * polarity;
         let (pan_left, pan_right) = constant_power_pan(source.pan);
         for frame in 0..audio.frame_count() {
             let destination = frame + source.delay_samples;
-            if destination >= frames {
+            if destination >= natural_frames {
                 break;
             }
             left[destination] += source_left[frame] * gain * pan_left;
             right[destination] += source_right[frame] * gain * pan_right;
         }
+    }
+    let mixed = AudioBuffer::stereo(settings.sample_rate, left, right)?;
+    let mixed = apply_equalizer(&mixed, global_equalizer, 1.0)?;
+    let (mut left, mut right) = mixed.to_stereo();
+    let output_gain = db_to_gain(settings.output_gain_db);
+    for sample in left.iter_mut().chain(&mut right) {
+        *sample *= output_gain;
+    }
+    if let Some(frames) = settings.frames {
+        left.resize(frames, 0.0);
+        right.resize(frames, 0.0);
+        left.truncate(frames);
+        right.truncate(frames);
     }
     let mut channels = match settings.channels {
         ExportChannels::Stereo => vec![left, right],
@@ -181,6 +193,7 @@ mod tests {
         };
         let output = render_mix(
             &[source],
+            &EqualizerState::default(),
             RenderSettings {
                 sample_rate: SampleRate(48_000),
                 frames: Some(4),
@@ -216,6 +229,7 @@ mod tests {
 
         let output = render_mix(
             &[source],
+            &EqualizerState::default(),
             RenderSettings {
                 sample_rate: SampleRate(48_000),
                 frames: Some(8),
@@ -264,8 +278,14 @@ mod tests {
             equalizer: &equalizer,
         };
 
-        let high_only = render_mix(&[source(&high_rate)], settings).unwrap();
-        let mixed = render_mix(&[source(&low_rate_silence), source(&high_rate)], settings).unwrap();
+        let high_only =
+            render_mix(&[source(&high_rate)], &EqualizerState::default(), settings).unwrap();
+        let mixed = render_mix(
+            &[source(&low_rate_silence), source(&high_rate)],
+            &EqualizerState::default(),
+            settings,
+        )
+        .unwrap();
 
         assert_eq!(mixed.sample_rate(), SampleRate(96_000));
         assert_eq!(mixed.frame_count(), high_rate.frame_count());
@@ -307,8 +327,18 @@ mod tests {
             normalize: false,
             normalization_target_dbfs: -1.0,
         };
-        let natural = render_mix(std::slice::from_ref(&source), settings(None)).unwrap();
-        let trimmed = render_mix(&[source], settings(Some(128))).unwrap();
+        let natural = render_mix(
+            std::slice::from_ref(&source),
+            &EqualizerState::default(),
+            settings(None),
+        )
+        .unwrap();
+        let trimmed = render_mix(
+            &[source],
+            &EqualizerState::default(),
+            settings(Some(128)),
+        )
+        .unwrap();
         assert!(natural.frame_count() > impulse.frame_count());
         assert_eq!(trimmed.frame_count(), 128);
     }

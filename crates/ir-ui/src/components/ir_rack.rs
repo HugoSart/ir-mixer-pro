@@ -38,6 +38,7 @@ pub struct IrRackCardView<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum IrRackAction {
+    EditGlobalEqualizer,
     AddIr,
     ClearAll,
     NormalizeAll,
@@ -103,6 +104,17 @@ impl<'a> IrRackCard<'a> {
                 .show_with_header(
                     ui,
                     |ui| {
+                        if ui
+                            .add(
+                                ActionButton::new("Global EQ")
+                                    .icon(Lucide::SlidersHorizontal),
+                            )
+                            .clicked()
+                        {
+                            actions
+                                .borrow_mut()
+                                .push(IrRackAction::EditGlobalEqualizer);
+                        }
                         if ui
                             .add(
                                 ActionButton::new("Normalize All")

@@ -212,6 +212,7 @@ impl IrRackDemo {
 
     fn apply(&mut self, action: IrRackAction) {
         match action {
+            IrRackAction::EditGlobalEqualizer => {}
             IrRackAction::AddIr => {
                 let id = self.next_id;
                 self.next_id += 1;

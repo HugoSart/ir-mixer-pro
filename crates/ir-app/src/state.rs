@@ -1,12 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const PRESET_SCHEMA_VERSION: u32 = 4;
+pub const PRESET_SCHEMA_VERSION: u32 = 5;
 const BALANCE_SILENCE_DB: f32 = -144.0;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct IrId(pub u64);
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum EqualizerTarget {
+    Global,
+    Ir(IrId),
+}
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -196,6 +202,8 @@ pub struct ProjectState {
     pub selected_ir: Option<IrId>,
     #[serde(default)]
     pub balance_mode: bool,
+    #[serde(default)]
+    pub global_equalizer: ir_eq::EqualizerState,
     pub source: SourceState,
     pub output: OutputState,
     pub analysis: AnalysisState,
@@ -337,10 +345,16 @@ impl PresetDocument {
     pub fn migrate(mut self) -> Result<Self, PresetVersionError> {
         match self.schema_version {
             PRESET_SCHEMA_VERSION => Ok(self),
+            4 => {
+                self.project.global_equalizer = ir_eq::EqualizerState::default();
+                self.schema_version = PRESET_SCHEMA_VERSION;
+                Ok(self)
+            }
             3 => {
                 for slot in &mut self.project.ir_slots {
                     slot.equalizer = ir_eq::EqualizerState::default();
                 }
+                self.project.global_equalizer = ir_eq::EqualizerState::default();
                 self.schema_version = PRESET_SCHEMA_VERSION;
                 Ok(self)
             }
@@ -352,6 +366,7 @@ impl PresetDocument {
                 for slot in &mut self.project.ir_slots {
                     slot.equalizer = ir_eq::EqualizerState::default();
                 }
+                self.project.global_equalizer = ir_eq::EqualizerState::default();
                 self.schema_version = PRESET_SCHEMA_VERSION;
                 Ok(self)
             }
@@ -370,6 +385,7 @@ impl PresetDocument {
                 for slot in &mut self.project.ir_slots {
                     slot.equalizer = ir_eq::EqualizerState::default();
                 }
+                self.project.global_equalizer = ir_eq::EqualizerState::default();
                 self.schema_version = PRESET_SCHEMA_VERSION;
                 Ok(self)
             }
@@ -419,6 +435,7 @@ mod tests {
                 .collect(),
             selected_ir: None,
             balance_mode: false,
+            global_equalizer: ir_eq::EqualizerState::default(),
             source: SourceState {
                 mode: SourceMode::Preview,
                 filename: None,
@@ -600,7 +617,7 @@ pub struct AppSnapshot {
     pub latency_ms: f32,
     pub status: String,
     pub status_is_error: bool,
-    pub selected_eq: Option<(IrId, ir_eq::EqBandId)>,
+    pub selected_eq: Option<(EqualizerTarget, ir_eq::EqBandId)>,
     pub eq_clipboard_available: bool,
 }
 
@@ -642,19 +659,19 @@ pub enum AppCommand {
     SetIrNormalize(IrId, bool),
     SetIrSolo(IrId, bool),
     SetIrMute(IrId, bool),
-    SelectEqBand(IrId, Option<ir_eq::EqBandId>),
-    AddEqBand(IrId, f32, f32),
-    RemoveEqBand(IrId, ir_eq::EqBandId),
-    SetEqBandEnabled(IrId, ir_eq::EqBandId, bool),
-    SetEqBandShape(IrId, ir_eq::EqBandId, ir_eq::EqShape),
-    SetEqBandFrequency(IrId, ir_eq::EqBandId, f32),
-    SetEqBandGain(IrId, ir_eq::EqBandId, f32),
-    SetEqBandQ(IrId, ir_eq::EqBandId, f32),
-    SetEqBypassed(IrId, bool),
-    SetEqOutputGainDb(IrId, f32),
-    ResetEq(IrId),
-    CopyEq(IrId),
-    PasteEq(IrId),
+    SelectEqBand(EqualizerTarget, Option<ir_eq::EqBandId>),
+    AddEqBand(EqualizerTarget, f32, f32),
+    RemoveEqBand(EqualizerTarget, ir_eq::EqBandId),
+    SetEqBandEnabled(EqualizerTarget, ir_eq::EqBandId, bool),
+    SetEqBandShape(EqualizerTarget, ir_eq::EqBandId, ir_eq::EqShape),
+    SetEqBandFrequency(EqualizerTarget, ir_eq::EqBandId, f32),
+    SetEqBandGain(EqualizerTarget, ir_eq::EqBandId, f32),
+    SetEqBandQ(EqualizerTarget, ir_eq::EqBandId, f32),
+    SetEqBypassed(EqualizerTarget, bool),
+    SetEqOutputGainDb(EqualizerTarget, f32),
+    ResetEq(EqualizerTarget),
+    CopyEq(EqualizerTarget),
+    PasteEq(EqualizerTarget),
     SetAnalysisTab(AnalysisTab),
     SetAnalysisViewMode(OptionId),
     SetSmoothing(OptionId),

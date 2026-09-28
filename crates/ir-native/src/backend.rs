@@ -6,8 +6,8 @@ use crate::worker::{self, ExportSource, WorkerRequest, WorkerResult};
 use crossbeam_channel::{Receiver, Sender};
 use ir_app::{
     AnalysisTrace, AppCommand, AppSnapshot, AudioBackend, BackendEvent, Choice, ContentState,
-    EqBand, EqBandId, EqualizerState, ExportState, IrFileReference, IrId, IrSlotState,
-    MockAudioBackend, OptionId, PresetDocument, SourceMode, TransportState,
+    EqBand, EqBandId, EqualizerState, EqualizerTarget, ExportState, IrFileReference, IrId,
+    IrSlotState, MockAudioBackend, OptionId, PresetDocument, SourceMode, TransportState,
 };
 use ir_core::{AudioBuffer, ExportChannels, RenderSettings, SampleRate, WavEncoding};
 use ir_dsp::{EngineConfig, PreparedEqualizer, SlotParameters};
@@ -325,86 +325,80 @@ impl NativeAudioBackend {
             SetIrNormalize(id, value) => self.update_slot(id, |slot| slot.normalize = value),
             SetIrSolo(id, value) => self.update_slot(id, |slot| slot.soloed = value),
             SetIrMute(id, value) => self.update_slot(id, |slot| slot.muted = value),
-            SelectEqBand(id, band) => self.snapshot.selected_eq = band.map(|band| (id, band)),
-            AddEqBand(id, frequency, gain) => {
+            SelectEqBand(target, band) => {
+                self.snapshot.selected_eq = band.map(|band| (target, band))
+            }
+            AddEqBand(target, frequency, gain) => {
                 let at_capacity = self
-                    .snapshot
-                    .project
-                    .ir_slots
-                    .iter()
-                    .find(|slot| slot.id == id)
-                    .is_some_and(|slot| slot.equalizer.bands.len() >= ir_eq::MAX_BANDS);
+                    .equalizer(target)
+                    .is_some_and(|equalizer| equalizer.bands.len() >= ir_eq::MAX_BANDS);
                 if at_capacity {
                     self.fail(format!(
-                        "An IR equalizer supports at most {} bands",
+                        "An equalizer supports at most {} bands",
                         ir_eq::MAX_BANDS
                     ));
                 } else {
                     let next = self
-                        .snapshot
-                        .project
-                        .ir_slots
-                        .iter()
-                        .find(|slot| slot.id == id)
-                        .and_then(|slot| slot.equalizer.bands.iter().map(|band| band.id.0).max())
+                        .equalizer(target)
+                        .and_then(|equalizer| {
+                            equalizer.bands.iter().map(|band| band.id.0).max()
+                        })
                         .unwrap_or(0)
                         + 1;
-                    self.update_equalizer(id, |equalizer| {
+                    self.update_equalizer(target, |equalizer| {
                         equalizer
                             .bands
                             .push(EqBand::bell(EqBandId(next), frequency, gain))
                     });
-                    self.snapshot.selected_eq = Some((id, EqBandId(next)));
+                    self.snapshot.selected_eq = Some((target, EqBandId(next)));
                 }
             }
-            RemoveEqBand(id, band) => {
-                self.update_equalizer(id, |equalizer| {
+            RemoveEqBand(target, band) => {
+                self.update_equalizer(target, |equalizer| {
                     equalizer.bands.retain(|item| item.id != band)
                 });
-                if self.snapshot.selected_eq == Some((id, band)) {
+                if self.snapshot.selected_eq == Some((target, band)) {
                     self.snapshot.selected_eq = None;
                 }
             }
-            SetEqBandEnabled(id, band, value) => {
-                self.update_eq_band(id, band, |item| item.enabled = value)
+            SetEqBandEnabled(target, band, value) => {
+                self.update_eq_band(target, band, |item| item.enabled = value)
             }
-            SetEqBandShape(id, band, value) => {
-                self.update_eq_band(id, band, |item| item.shape = value)
+            SetEqBandShape(target, band, value) => {
+                self.update_eq_band(target, band, |item| item.shape = value)
             }
-            SetEqBandFrequency(id, band, value) => {
-                self.update_eq_band(id, band, |item| item.frequency_hz = value)
+            SetEqBandFrequency(target, band, value) => {
+                self.update_eq_band(target, band, |item| item.frequency_hz = value)
             }
-            SetEqBandGain(id, band, value) => {
-                self.update_eq_band(id, band, |item| item.gain_db = value)
+            SetEqBandGain(target, band, value) => {
+                self.update_eq_band(target, band, |item| item.gain_db = value)
             }
-            SetEqBandQ(id, band, value) => self.update_eq_band(id, band, |item| item.q = value),
-            SetEqBypassed(id, value) => {
-                self.update_equalizer(id, |equalizer| equalizer.bypassed = value)
+            SetEqBandQ(target, band, value) => {
+                self.update_eq_band(target, band, |item| item.q = value)
             }
-            SetEqOutputGainDb(id, value) => {
-                self.update_equalizer(id, |equalizer| equalizer.output_gain_db = value)
+            SetEqBypassed(target, value) => {
+                self.update_equalizer(target, |equalizer| equalizer.bypassed = value)
             }
-            ResetEq(id) => {
-                self.update_equalizer(id, |equalizer| *equalizer = EqualizerState::default());
+            SetEqOutputGainDb(target, value) => {
+                self.update_equalizer(target, |equalizer| equalizer.output_gain_db = value)
+            }
+            ResetEq(target) => {
+                self.update_equalizer(target, |equalizer| {
+                    *equalizer = EqualizerState::default()
+                });
                 self.snapshot.selected_eq = None;
             }
-            CopyEq(id) => {
-                self.eq_clipboard = self
-                    .snapshot
-                    .project
-                    .ir_slots
-                    .iter()
-                    .find(|slot| slot.id == id)
-                    .map(|slot| slot.equalizer.clone());
+            CopyEq(target) => {
+                self.eq_clipboard = self.equalizer(target).cloned();
                 self.snapshot.eq_clipboard_available = self.eq_clipboard.is_some();
             }
-            PasteEq(id) => {
+            PasteEq(target) => {
                 if let Some(mut equalizer) = self.eq_clipboard.clone() {
                     equalizer.bands.truncate(ir_eq::MAX_BANDS);
                     for (index, band) in equalizer.bands.iter_mut().enumerate() {
                         band.id = EqBandId(index as u64 + 1);
                     }
-                    self.update_equalizer(id, |target| *target = equalizer);
+                    self.update_equalizer(target, |destination| *destination = equalizer);
                     self.snapshot.selected_eq = None;
                 }
             }
@@ -749,6 +743,7 @@ impl NativeAudioBackend {
                 self.send(RuntimeCommand::SetLimiter(
                     self.snapshot.project.output.limit_output,
                 ));
+                self.install_global_equalizer();
                 if let Some((_, preview)) = &self.prepared_preview {
                     self.send(RuntimeCommand::SetPreview {
                         normalization_gain: preview.normalization_gain(0.0),
@@ -903,35 +898,79 @@ impl NativeAudioBackend {
             self.send(RuntimeCommand::SetSlotParameters(id.0, params));
         }
     }
-    fn update_equalizer(&mut self, id: IrId, update: impl FnOnce(&mut EqualizerState)) {
-        let state = self
-            .snapshot
-            .project
-            .ir_slots
-            .iter_mut()
-            .find(|slot| slot.id == id)
-            .map(|slot| {
-                update(&mut slot.equalizer);
-                slot.equalizer.sanitize();
-                slot.equalizer.clone()
-            });
+    fn equalizer(&self, target: EqualizerTarget) -> Option<&EqualizerState> {
+        match target {
+            EqualizerTarget::Global => Some(&self.snapshot.project.global_equalizer),
+            EqualizerTarget::Ir(id) => self
+                .snapshot
+                .project
+                .ir_slots
+                .iter()
+                .find(|slot| slot.id == id)
+                .map(|slot| &slot.equalizer),
+        }
+    }
+
+    fn equalizer_mut(&mut self, target: EqualizerTarget) -> Option<&mut EqualizerState> {
+        match target {
+            EqualizerTarget::Global => Some(&mut self.snapshot.project.global_equalizer),
+            EqualizerTarget::Ir(id) => self
+                .snapshot
+                .project
+                .ir_slots
+                .iter_mut()
+                .find(|slot| slot.id == id)
+                .map(|slot| &mut slot.equalizer),
+        }
+    }
+
+    fn update_equalizer(
+        &mut self,
+        target: EqualizerTarget,
+        update: impl FnOnce(&mut EqualizerState),
+    ) {
+        let state = self.equalizer_mut(target).map(|equalizer| {
+            update(equalizer);
+            equalizer.sanitize();
+            equalizer.clone()
+        });
         if let Some(state) = state {
             match PreparedEqualizer::new(&state, self.engine_config().sample_rate) {
-                Ok(equalizer) => self.send(RuntimeCommand::ReplaceSlotEqualizer(
-                    id.0,
-                    Box::new(equalizer),
-                )),
+                Ok(equalizer) => match target {
+                    EqualizerTarget::Global => self.send(
+                        RuntimeCommand::ReplaceGlobalEqualizer(Box::new(equalizer)),
+                    ),
+                    EqualizerTarget::Ir(id) => self.send(RuntimeCommand::ReplaceSlotEqualizer(
+                        id.0,
+                        Box::new(equalizer),
+                    )),
+                },
                 Err(error) => self.fail(error.to_string()),
             }
         }
     }
-    fn update_eq_band(&mut self, id: IrId, band: EqBandId, update: impl FnOnce(&mut EqBand)) {
-        self.update_equalizer(id, |equalizer| {
+    fn update_eq_band(
+        &mut self,
+        target: EqualizerTarget,
+        band: EqBandId,
+        update: impl FnOnce(&mut EqBand),
+    ) {
+        self.update_equalizer(target, |equalizer| {
             if let Some(item) = equalizer.bands.iter_mut().find(|item| item.id == band) {
                 update(item);
                 item.sanitize();
             }
         });
+    }
+
+    fn install_global_equalizer(&mut self) {
+        let state = self.snapshot.project.global_equalizer.clone();
+        match PreparedEqualizer::new(&state, self.engine_config().sample_rate) {
+            Ok(equalizer) => {
+                self.send(RuntimeCommand::ReplaceGlobalEqualizer(Box::new(equalizer)))
+            }
+            Err(error) => self.fail(error.to_string()),
+        }
     }
     fn slot_params(&self, id: IrId) -> Option<SlotParameters> {
         self.snapshot
@@ -1042,6 +1081,7 @@ impl NativeAudioBackend {
             .send(WorkerRequest::Export {
                 path,
                 sources,
+                global_equalizer: self.snapshot.project.global_equalizer.clone(),
                 settings,
                 encoding,
             })
@@ -1376,6 +1416,7 @@ impl NativeAudioBackend {
                 self.snapshot.project.export.destination = None;
                 self.snapshot.project.export.state = ExportState::Idle;
                 self.snapshot.project.dirty = false;
+                self.install_global_equalizer();
                 self.next_ir_id = self
                     .snapshot
                     .project
@@ -1484,6 +1525,7 @@ impl NativeAudioBackend {
         let _ = self.worker_tx.send(WorkerRequest::Analyze {
             generation,
             sources,
+            global_equalizer: self.snapshot.project.global_equalizer.clone(),
             settings,
         });
     }
