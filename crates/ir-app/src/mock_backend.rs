@@ -466,11 +466,7 @@ fn refresh_mock_analysis(snapshot: &mut AppSnapshot) {
             let t = sample as f32 / 179.0;
             let frequency = ir_eq::MIN_FREQUENCY_HZ
                 * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t);
-            ir_eq::response_db(
-                &snapshot.project.global_equalizer,
-                sample_rate,
-                frequency,
-            )
+            ir_eq::response_db(&snapshot.project.global_equalizer, sample_rate, frequency)
         })
         .collect::<Vec<_>>();
     let mut combined_linear = vec![0.0_f32; 180];
@@ -486,9 +482,7 @@ fn refresh_mock_analysis(snapshot: &mut AppSnapshot) {
         let frequency_values = (0..180)
             .map(|sample| {
                 let x = sample as f32 / 179.0;
-                level_db
-                    + (x * 7.0 + index as f32 * 0.8).sin() * 3.0
-                    - x.powi(5) * 18.0
+                level_db + (x * 7.0 + index as f32 * 0.8).sin() * 3.0 - x.powi(5) * 18.0
                     + global_response[sample]
             })
             .collect::<Vec<_>>();
@@ -838,7 +832,9 @@ mod tests {
 
     #[test]
     fn preset_document_round_trips_with_version() {
-        let backend = MockAudioBackend::default();
+        let mut backend = MockAudioBackend::default();
+        backend.dispatch(AppCommand::AddEqBand(EqualizerTarget::Global, 750.0, 2.5));
+        backend.dispatch(AppCommand::SetEqOutputGainDb(EqualizerTarget::Global, -1.5));
         let document = PresetDocument::new(backend.snapshot.project.clone());
         let json = serde_json::to_string(&document).expect("demo preset should serialize");
         assert!(!json.contains("ampero-input"));
@@ -848,7 +844,51 @@ mod tests {
             serde_json::from_str(&json).expect("demo preset should deserialize");
         assert_eq!(decoded.schema_version, PRESET_SCHEMA_VERSION);
         assert_eq!(decoded.project.ir_slots.len(), 6);
+        assert_eq!(
+            decoded.project.global_equalizer,
+            backend.snapshot.project.global_equalizer
+        );
         assert!(decoded.validate_version().is_ok());
+    }
+
+    #[test]
+    fn global_equalizer_commands_update_analysis_and_copy_between_targets() {
+        let mut backend = MockAudioBackend::default();
+        let original_analysis = backend.snapshot.frequency_traces.clone();
+
+        backend.dispatch(AppCommand::AddEqBand(EqualizerTarget::Global, 900.0, 4.0));
+        let global_band = backend.snapshot.project.global_equalizer.bands[0].id;
+        backend.dispatch(AppCommand::SetEqBandQ(
+            EqualizerTarget::Global,
+            global_band,
+            ir_eq::MAX_Q + 10.0,
+        ));
+        backend.dispatch(AppCommand::SetEqOutputGainDb(EqualizerTarget::Global, -3.0));
+
+        assert_eq!(
+            backend.snapshot.project.global_equalizer.bands[0].q,
+            ir_eq::MAX_Q
+        );
+        assert_eq!(
+            backend.snapshot.project.global_equalizer.output_gain_db,
+            -3.0
+        );
+        assert_ne!(backend.snapshot.frequency_traces, original_analysis);
+        assert!(backend.snapshot.project.dirty);
+
+        backend.dispatch(AppCommand::CopyEq(EqualizerTarget::Global));
+        backend.dispatch(AppCommand::PasteEq(EqualizerTarget::Ir(IrId(2))));
+        let pasted = &backend.snapshot.project.ir_slots[1].equalizer;
+        assert_eq!(pasted.output_gain_db, -3.0);
+        assert_eq!(pasted.bands.len(), 1);
+        assert_eq!(pasted.bands[0].id, EqBandId(1));
+        assert_eq!(backend.snapshot.selected_eq, None);
+
+        backend.dispatch(AppCommand::ResetEq(EqualizerTarget::Global));
+        assert_eq!(
+            backend.snapshot.project.global_equalizer,
+            EqualizerState::default()
+        );
     }
 
     #[test]

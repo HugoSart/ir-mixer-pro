@@ -14,9 +14,10 @@ visual regression coverage.
 Continue hardening this foundation as plugin work exposes host-specific block
 sizes, rates, lifecycle transitions, and state restoration cases.
 
-## Per-IR equalizer
+## Per-IR and global equalizers
 
-The equalizer is implemented as a first-release feature. Its product and
+The per-IR and post-mix global equalizers are implemented as first-release
+features. Their product and
 processing contract is defined in [equalizer.md](equalizer.md).
 
 - Add a responsive right-edge equalizer pane targeting 920 points and shrinking
@@ -28,7 +29,8 @@ processing contract is defined in [equalizer.md](equalizer.md).
   deletion.
 - Add one selected-band value strip, complete-EQ and per-band bypass, EQ output
   gain, headroom feedback, reset-all, and copy/paste workflows.
-- Persist EQ state in presets and future plugin sessions with schema migration.
+- Persist per-IR and global EQ state in presets and future plugin sessions with
+  schema migration.
 - Apply equivalent EQ behavior to monitoring, analysis, and mixed-IR export.
 - Keep coefficient preparation and topology changes outside the audio callback,
   with click-free real-time transitions and allocation-free warmed-up processing.
@@ -54,9 +56,7 @@ These adapters are required to complete the multi-format first release:
 
 - Derive the displayed application version from package/build metadata instead
   of the current hardcoded UI label.
-- Make formatting and strict workspace Clippy checks clean; current known items
-  are `build.rs` formatting, `ir_rack.rs` argument count, and the conditional in
-  `widgets/value.rs`.
+- Keep formatting and strict workspace Clippy checks clean as features evolve.
 - Add CI for formatting, Clippy, tests, release compilation, and artifact checks.
 - Choose and add the repository/distribution license before public packaging.
 - Extend release tooling to package and checksum standalone, VST3, and CLAP

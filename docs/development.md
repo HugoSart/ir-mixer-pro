@@ -54,10 +54,7 @@ The release packaging script runs the first three checks before building unless
 `-SkipChecks` is supplied. Do not use that switch to bypass failures that have
 not already passed for the same revision.
 
-Current release-hardening cleanup is tracked in [roadmap.md](roadmap.md). The
-documentation audit found formatting drift in `build.rs` and two strict Clippy
-findings in `ir-ui`; those are code tasks rather than alternate documented
-commands.
+Current release-hardening work is tracked in [roadmap.md](roadmap.md).
 
 ## Test organization
 

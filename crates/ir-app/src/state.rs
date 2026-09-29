@@ -539,6 +539,36 @@ mod tests {
             migrated.project.ir_slots[0].equalizer,
             ir_eq::EqualizerState::default()
         );
+        assert_eq!(
+            migrated.project.global_equalizer,
+            ir_eq::EqualizerState::default()
+        );
+    }
+
+    #[test]
+    fn schema_four_preserves_per_ir_eq_and_adds_a_transparent_global_eq() {
+        let mut document = PresetDocument::new(project(&[0.0]));
+        document.schema_version = 4;
+        let per_ir_eq = ir_eq::EqualizerState {
+            bypassed: false,
+            output_gain_db: -2.0,
+            bands: vec![ir_eq::EqBand::bell(ir_eq::EqBandId(9), 1_200.0, 3.0)],
+        };
+        document.project.ir_slots[0].equalizer = per_ir_eq.clone();
+        document.project.global_equalizer = ir_eq::EqualizerState {
+            bypassed: true,
+            output_gain_db: 6.0,
+            bands: vec![ir_eq::EqBand::bell(ir_eq::EqBandId(3), 500.0, -4.0)],
+        };
+
+        let migrated = document.migrate().unwrap();
+
+        assert_eq!(migrated.schema_version, PRESET_SCHEMA_VERSION);
+        assert_eq!(migrated.project.ir_slots[0].equalizer, per_ir_eq);
+        assert_eq!(
+            migrated.project.global_equalizer,
+            ir_eq::EqualizerState::default()
+        );
     }
 }
 

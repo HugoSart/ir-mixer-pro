@@ -105,15 +105,10 @@ impl<'a> IrRackCard<'a> {
                     ui,
                     |ui| {
                         if ui
-                            .add(
-                                ActionButton::new("Global EQ")
-                                    .icon(Lucide::SlidersHorizontal),
-                            )
+                            .add(ActionButton::new("Global EQ").icon(Lucide::SlidersHorizontal))
                             .clicked()
                         {
-                            actions
-                                .borrow_mut()
-                                .push(IrRackAction::EditGlobalEqualizer);
+                            actions.borrow_mut().push(IrRackAction::EditGlobalEqualizer);
                         }
                         if ui
                             .add(

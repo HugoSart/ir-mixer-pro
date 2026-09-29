@@ -128,6 +128,7 @@ The header contains:
 - Remove selected IR
 - Clear All
 - Normalize All
+- Global EQ
 
 Each row contains these columns:
 
@@ -143,8 +144,9 @@ knobs remain neutral so color does not imply a semantic warning.
 The row action menu provides Move Up, Move Down, Replace IR File, and Remove IR.
 Reordering is explicit; drag-and-drop reorder is roadmap work.
 
-The row action menu also opens the selected IR's parametric EQ in the responsive
-right-edge sliding pane. The 920-point pane contains the directly editable
+The row action menu opens the selected IR's parametric EQ in the responsive
+right-edge sliding pane. The rack-level Global EQ action opens the same editor
+for the post-mix equalizer. The 920-point pane contains the directly editable
 response graph and one selected-band value strip; it shrinks to the available
 body width on smaller windows.
 

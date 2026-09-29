@@ -88,6 +88,7 @@ The following updates do not rebuild convolvers:
 - Output gain and bypass
 - Limiter enable
 - Per-IR EQ parameters, topology, bypass, and EQ output gain
+- Global EQ parameters, topology, bypass, and EQ output gain
 
 Gain, pan, polarity, audibility, output gain, and bypass transitions are smoothed
 over 10 ms. Delay uses preallocated lines up to 4096 samples.
@@ -96,6 +97,11 @@ Each IR owns up to 16 dynamic `biquad` `DirectForm1<f32>` sections per channel.
 The cascade runs after convolution and before delay, polarity, rack gain, and
 pan. Replacement chains preserve matching stable-ID histories, crossfade for
 10 ms, and retire completed state outside the callback.
+
+The project-level global EQ uses the same prepared-chain and transition rules.
+It processes the summed rack output before master output gain, bypass, and the
+monitoring limiter. When the rack is empty or inaudible, it processes the dry
+fallback signal before those master controls.
 
 If every IR is disabled, muted, or excluded by solo logic, monitoring passes the
 source through. This prevents an empty rack from unexpectedly silencing input.
@@ -161,10 +167,10 @@ export rate with the offline 64-tap windowed-sinc resampler. Therefore:
 - Choosing a lower export rate intentionally band-limits higher-rate sources.
 - Repeated output-device changes do not accumulate resampling loss.
 
-Export then applies per-IR normalization, sample-rate-specific EQ and EQ output
-gain, delay, polarity, gain, pan, sum,
-output gain, optional length trim/pad, channel conversion, optional final
-normalization, and WAV encoding.
+Export then applies per-IR normalization, sample-rate-specific per-IR EQ and EQ
+output gain, delay, polarity, gain, pan, sum, sample-rate-specific global EQ and
+global EQ output gain, output gain, optional length trim/pad, channel conversion,
+optional final normalization, and WAV encoding.
 
 ## Export length and encoding
 
@@ -188,9 +194,9 @@ is disabled and the peak exceeds full scale. Float32 may retain values above
 ## Analysis relationship
 
 Frequency, phase, and combined impulse analysis use the active native sources
-rendered at the current engine rate. They follow the same slot transforms and
-output gain as export, but do not apply final normalization, monitoring bypass,
-or limiter behavior.
+rendered at the current engine rate. They follow the same slot transforms,
+global EQ, and output gain as export, but do not apply final normalization,
+monitoring bypass, or limiter behavior.
 
 The real-time spectrum and meters describe monitored output rather than the
 stored IR alone.

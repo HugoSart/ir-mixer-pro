@@ -14,9 +14,9 @@ use crate::{
 use egui::{Color32, Id, Pos2, Rect, ScrollArea, Sense, Stroke, Ui, Vec2};
 use egui_lucide::Lucide;
 use ir_app::{
-    AnalysisTab, AppCommand, AppSnapshot, Choice, ContentState, EqBandId, EqShape,
-    EqualizerState, EqualizerTarget, ExportState, FrontendMode, IrId, SourceMode, TransportState,
-    selected_id, selected_index,
+    AnalysisTab, AppCommand, AppSnapshot, Choice, ContentState, EqBandId, EqShape, EqualizerState,
+    EqualizerTarget, ExportState, FrontendMode, IrId, SourceMode, TransportState, selected_id,
+    selected_index,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -916,10 +916,7 @@ fn show_eq_graph(
             )
         })
         .collect::<Vec<_>>();
-    painter.add(egui::Shape::line(
-        curve,
-        Stroke::new(2.0, curve_color),
-    ));
+    painter.add(egui::Shape::line(curve, Stroke::new(2.0, curve_color)));
 
     let interaction_pointer = response.interact_pointer_pos();
     let hovered_band = response
@@ -1022,25 +1019,25 @@ fn show_eq_graph(
         if let Some(band_id) = hovered_band {
             for shape in EqShape::ALL {
                 if ui.button(shape.label()).clicked() {
-                    commands.push(AppCommand::SetEqBandShape(slot.id, band_id, shape));
+                    commands.push(AppCommand::SetEqBandShape(target, band_id, shape));
                     ui.close();
                 }
             }
             ui.separator();
             if ui.button("Delete band").clicked() {
-                commands.push(AppCommand::RemoveEqBand(slot.id, band_id));
+                commands.push(AppCommand::RemoveEqBand(target, band_id));
                 ui.close();
             }
         } else if plot_rect.contains(menu_position)
             && ui
                 .add_enabled(
-                    slot.equalizer.bands.len() < ir_eq::MAX_BANDS,
+                    equalizer.bands.len() < ir_eq::MAX_BANDS,
                     egui::Button::new("Create Bell band here"),
                 )
                 .clicked()
         {
             commands.push(AppCommand::AddEqBand(
-                slot.id,
+                target,
                 eq_x_to_frequency(plot_rect, menu_position.x),
                 eq_y_to_gain(plot_rect, menu_position.y),
             ));
@@ -1051,13 +1048,12 @@ fn show_eq_graph(
 
 fn show_selected_band(
     ui: &mut Ui,
-    ir_id: IrId,
-    slot: &ir_app::IrSlotState,
+    target: EqualizerTarget,
+    equalizer: &EqualizerState,
     selected: Option<EqBandId>,
     commands: &mut Vec<AppCommand>,
 ) {
-    let selected_band =
-        selected.and_then(|id| slot.equalizer.bands.iter().find(|band| band.id == id));
+    let selected_band = selected.and_then(|id| equalizer.bands.iter().find(|band| band.id == id));
     ui.separator();
     ui.add_enabled_ui(selected_band.is_some(), |ui| {
         ui.horizontal(|ui| {
@@ -1071,9 +1067,9 @@ fn show_selected_band(
             };
             let mut enabled = band.enabled;
             if ui.checkbox(&mut enabled, "Enabled").changed() {
-                commands.push(AppCommand::SetEqBandEnabled(ir_id, band.id, enabled));
+                commands.push(AppCommand::SetEqBandEnabled(target, band.id, enabled));
             }
-            egui::ComboBox::from_id_salt(("eq_shape", ir_id.0, band.id.0))
+            egui::ComboBox::from_id_salt(("eq_shape", target, band.id.0))
                 .selected_text(band.shape.label())
                 .show_ui(ui, |ui| {
                     for shape in EqShape::ALL {
@@ -1081,7 +1077,7 @@ fn show_selected_band(
                             .selectable_label(shape == band.shape, shape.label())
                             .clicked()
                         {
-                            commands.push(AppCommand::SetEqBandShape(ir_id, band.id, shape));
+                            commands.push(AppCommand::SetEqBandShape(target, band.id, shape));
                         }
                     }
                 });
@@ -1095,7 +1091,7 @@ fn show_selected_band(
                 )
                 .changed()
             {
-                commands.push(AppCommand::SetEqBandFrequency(ir_id, band.id, frequency));
+                commands.push(AppCommand::SetEqBandFrequency(target, band.id, frequency));
             }
             if band.shape.has_gain() {
                 let mut gain = band.gain_db;
@@ -1108,7 +1104,7 @@ fn show_selected_band(
                     )
                     .changed()
                 {
-                    commands.push(AppCommand::SetEqBandGain(ir_id, band.id, gain));
+                    commands.push(AppCommand::SetEqBandGain(target, band.id, gain));
                 }
             } else {
                 ui.add_enabled(false, egui::Label::new("Gain: None"));
@@ -1123,7 +1119,7 @@ fn show_selected_band(
                 )
                 .changed()
             {
-                commands.push(AppCommand::SetEqBandQ(ir_id, band.id, q));
+                commands.push(AppCommand::SetEqBandQ(target, band.id, q));
             }
         });
     });
@@ -1220,24 +1216,31 @@ fn nearest_eq_band(rect: Rect, bands: &[ir_app::EqBand], position: Pos2) -> Opti
         .map(|(id, _)| id)
 }
 
-fn estimate_eq_peak_db(slot: &ir_app::IrSlotState) -> f32 {
-    let source_peak = slot
-        .waveform
+fn waveform_peak_db(waveform: &[f32]) -> f32 {
+    let source_peak = waveform
         .iter()
         .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
     if source_peak <= f32::MIN_POSITIVE {
         return -144.0;
     }
-    let rate = slot.sample_rate_hz.max(1.0) as u32;
+
+    20.0 * source_peak.log10()
+}
+
+fn estimate_eq_peak_db(waveform: &[f32], equalizer: &EqualizerState, sample_rate: u32) -> f32 {
+    let source_peak_db = waveform_peak_db(waveform);
+    if source_peak_db <= -144.0 {
+        return source_peak_db;
+    }
     let max_eq = (0..180)
         .map(|index| {
             let t = index as f32 / 179.0;
             let frequency = ir_eq::MIN_FREQUENCY_HZ
                 * (ir_eq::MAX_FREQUENCY_HZ / ir_eq::MIN_FREQUENCY_HZ).powf(t);
-            ir_eq::response_db(&slot.equalizer, rate, frequency)
+            ir_eq::response_db(equalizer, sample_rate, frequency)
         })
         .fold(f32::NEG_INFINITY, f32::max);
-    20.0 * source_peak.log10() + max_eq
+    source_peak_db + max_eq
 }
 
 fn map_rack_action(action: IrRackAction) -> AppCommand {

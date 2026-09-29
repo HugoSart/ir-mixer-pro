@@ -26,6 +26,7 @@ The same project model and audio engine target three first-release formats:
 - Adjust gain or percentage balance, positive delay, polarity, pan,
   normalization, mute, solo, enabled state, and order per IR.
 - Shape each IR with a non-destructive parametric equalizer.
+- Shape the completed rack sum with a global parametric equalizer.
 - Replace or remove an IR without disturbing unrelated slots.
 - Preserve each IR's identity color when slots move or other slots are removed.
 
@@ -90,7 +91,7 @@ Every slot stores:
 The project model may contain more than 16 slots. The 16-IR limit applies only
 to simultaneously enabled real-time convolvers.
 
-### Per-IR equalizer
+### Per-IR and global equalizers
 
 Every IR supports a non-destructive parametric equalizer with an ordered dynamic
 band list. Bands support bell, low-shelf, high-shelf, notch, high-pass, and
@@ -98,6 +99,10 @@ low-pass shapes. Users create bands by right-clicking the response graph, select
 and drag graph nodes to edit them, change shape or delete from a node context
 menu, enable/bypass bands, bypass the complete EQ, adjust explicit EQ output
 gain, reset the chain, and copy an EQ chain between IRs.
+
+The project also stores one global equalizer after the IR sum and before master
+output gain. It uses the same band model and editing workflow, and EQ chains can
+be copied between per-IR and global targets.
 
 The equalizer opens in a right-edge sliding pane with an interactive response
 graph, one selected-band value strip, original/EQ comparison, and peak/headroom
@@ -107,11 +112,11 @@ persistent application bars visible. A new or migrated IR has an empty
 transparent EQ chain and unity EQ output gain. EQ never normalizes or compensates
 gain implicitly.
 
-Each IR supports up to 16 bands. Frequency spans 20 Hz–20 kHz, band and EQ
+Each equalizer supports up to 16 bands. Frequency spans 20 Hz–20 kHz, band and EQ
 output gain span −12 dB to +12 dB, and Q spans 0.1–12 with a default of 1.0.
 High-pass and low-pass shapes are fixed second-order 12 dB/octave sections.
 
-Equalizer state must affect preview, live monitoring, analysis, presets, plugin
+Per-IR and global equalizer state must affect preview, live monitoring, analysis, presets, plugin
 session state, and mixed-IR export consistently. Detailed behavior is specified
 in [equalizer.md](equalizer.md).
 
@@ -155,14 +160,16 @@ The application provides:
   count, and engine status
 
 Mix-affecting changes schedule background analysis. Existing graphs remain
-visible until the newest calculation completes. Per-IR EQ and EQ output gain are
-included in frequency, phase, and combined impulse analysis.
+visible until the newest calculation completes. Per-IR and global EQ, including
+their output gains, are included in frequency, phase, and combined impulse
+analysis.
 
 ## Presets and state
 
 - Presets use a versioned JSON schema.
-- Presets retain IR references, slot order and controls, per-IR equalizer state,
-  Balance Mode, output controls, analysis selections, and export choices.
+- Presets retain IR references, slot order and controls, per-IR and global
+  equalizer state, Balance Mode, output controls, analysis selections, and
+  export choices.
 - Device and channel selections are machine-local and are not portable preset
   state.
 - Missing IR files remain visible as errored slots so mixer settings are not

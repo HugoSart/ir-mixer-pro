@@ -4,7 +4,7 @@ This document describes the current implementation and the boundaries that the
 planned VST3 and CLAP adapters must preserve. Product requirements belong in
 [product-spec.md](product-spec.md); detailed sample-rate and export behavior
 belongs in [audio-processing.md](audio-processing.md). The implemented per-IR
-equalizer is specified in [equalizer.md](equalizer.md).
+and global equalizers are specified in [equalizer.md](equalizer.md).
 
 ## System shape
 
@@ -106,14 +106,15 @@ Send-safe handles and owned snapshots rather than stream objects.
 Each enabled IR has its own `PreparedSlot` and pair of partitioned convolvers.
 The engine processes fixed blocks and then applies per-slot delay, smoothed
 gain, polarity, pan, mute/solo audibility, and summation. Output gain, bypass,
-and the optional limiter are applied after the sum.
+The global EQ is applied after the sum and before output gain, bypass, and the
+optional limiter.
 
 ```text
 source L/R
    ├── convolver 1 ─ delay/gain/pan ─┐
    ├── convolver 2 ─ delay/gain/pan ─┤
    └── convolver N ─ delay/gain/pan ─┤
-                                      ├─ sum ─ output gain ─ bypass ─ limiter
+                                      ├─ sum ─ global EQ ─ output gain ─ bypass ─ limiter
 dry source ───────────────────────────┘
 ```
 
@@ -163,11 +164,12 @@ Ordinary mix changes do not rebuild all convolvers:
 Balance Mode is implemented in the application model. Percentages are kept at
 100% and synchronized to dB gains before parameters reach the engine.
 
-## Per-IR equalizer
+## Per-IR and global equalizers
 
-The equalizer is implemented as a first-release feature. Each IR slot owns a
+Equalization is implemented as a first-release feature. Each IR slot owns a
 non-destructive ordered dynamic band list, complete-EQ
-bypass, and EQ output gain. The planned monitoring path is:
+bypass, and EQ output gain. The project owns another equalizer after the rack
+sum. The monitoring path is:
 
 ```text
 source
@@ -175,7 +177,7 @@ source
    → ordered EQ-band cascade
    → EQ output gain
    → delay / polarity / rack gain / pan
-   → sum → output gain → bypass → limiter
+   → sum → global EQ → output gain → bypass → limiter
 ```
 
 Filter coefficients and replacement chains are prepared and validated away
@@ -184,7 +186,7 @@ boundary. Parameter and topology changes must be smoothed or crossfaded without
 rebuilding convolution state. Stereo channels share controls but retain
 independent filter history.
 
-The equalizer uses the existing right-edge `SlidingPane` over the application
+Both targets use the existing right-edge `SlidingPane` over the application
 body, leaving persistent application bars visible. It will request
 `min(920 points, available body width)` rather than the component's default
 width. It will remain a controlled UI surface driven by `AppSnapshot` and typed
@@ -220,7 +222,9 @@ active native-rate sources
     → per-IR EQ cascade and EQ output gain
     → delay and polarity
     → gain and constant-power pan
-    → sum and output gain
+    → sum
+    → global EQ cascade and EQ output gain
+    → output gain
     → optional trim/pad
     → mono downmix or stereo output
     → optional -1 dBFS final normalization
@@ -240,13 +244,14 @@ Standalone presets are JSON files under:
 %APPDATA%\IR Mixer Pro\Presets
 ```
 
-The current preset schema is version 4:
+The current preset schema is version 5:
 
 - Version 1 stored basic project and path state.
 - Version 2 added `IrFileReference` with original path, optional preset-relative
   path, file size, and decoded-audio fingerprint.
 - Version 3 added project Balance Mode and per-slot balance percentages.
 - Version 4 added per-IR EQ bypass, output gain, and stable-ID dynamic bands.
+- Version 5 added the project-level global EQ.
 
 Versions 1 and 2 migrate in memory. Unsupported future versions fail explicitly.
 Loading first tries an existing stored path, then a preset-relative reference,
@@ -256,7 +261,8 @@ mix settings survive.
 Device, channel, monitoring, runtime loading state, waveforms, export destination,
 and dirty state are transient and excluded from portable preset serialization.
 
-Versions 1–3 migrate to an empty transparent EQ chain. Missing-file slots retain
+Versions 1–3 migrate to empty transparent per-IR and global EQ chains. Version 4
+preserves per-IR EQ and adds a transparent global EQ. Missing-file slots retain
 their EQ state.
 
 ## Planned plugin adapters

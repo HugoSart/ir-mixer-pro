@@ -1,7 +1,8 @@
-# IR Mixer Pro — Per-IR Equalizer
+# IR Mixer Pro — Per-IR and Global Equalizers
 
 This document defines the product and processing contract for the implemented
-per-IR parametric equalizer. It is a first-release feature built with the Rust
+per-IR and post-mix global parametric equalizers. They are first-release
+features built with the Rust
 `biquad` crate.
 
 The equalizer is deliberately narrower than a general impulse-response editor.
@@ -10,25 +11,26 @@ outside this milestone.
 
 ## Product goal
 
-Every loaded IR can have its own non-destructive parametric EQ. A user can shape
-individual cabinet responses before they are blended, compare the result with
-the unprocessed IR, inspect the response, save the settings, and hear the same
-result in preview, live monitoring, analysis, and mixed-IR export.
+Every loaded IR can have its own non-destructive parametric EQ, and the project
+has one global EQ after the IR sum. A user can shape individual cabinet
+responses before they are blended, shape the completed mix, compare either
+stage with its unprocessed signal, save the settings, and hear the same result
+in preview, live monitoring, analysis, and mixed-IR export.
 
 Loading an IR does not create or enable any filters. An empty EQ chain, unity EQ
 output gain, and EQ bypass off are sonically transparent.
 
 ## Equalizer model
 
-Each IR slot stores:
+Each IR slot and the project-level global EQ store:
 
 - A complete-EQ bypass state
 - EQ output gain in dB
 - An ordered list of EQ bands
 - A stable ID, enabled state, filter shape, and parameters for every band
 
-The project model does not impose a fixed number of bands. The prepared
-real-time representation contains the finite band list for the current project;
+Each equalizer supports up to 16 dynamic bands in v1. The prepared real-time
+representation contains the finite band list for the current project;
 adding or removing a band prepares replacement DSP state outside the audio
 callback.
 
@@ -49,8 +51,8 @@ order are not identities; selection and mutations address bands by stable ID.
 Frequency is constrained to 20 Hz–20 kHz and further constrained below Nyquist
 for the representation being processed. Band and EQ-output gain use −12 dB to
 +12 dB. Q uses 0.1–12 with a default of 1.0. High-pass and low-pass are
-second-order 12 dB/octave filters whose Q controls resonance. Each IR supports
-up to 16 dynamic bands in v1.
+second-order 12 dB/octave filters whose Q controls resonance. Both per-IR and
+global EQ use these limits.
 
 Controls that do not apply to the selected shape are hidden or disabled. All
 frequency values must remain valid for the active sample rate and below Nyquist.
@@ -66,16 +68,17 @@ The equalizer supports:
 - Enable or bypass an individual band without discarding its settings
 - Bypass the complete EQ for original/EQ comparison
 - Reset the complete EQ to an empty chain with unity output gain
-- Copy the complete EQ chain and paste it onto another IR
+- Copy the complete EQ chain and paste it onto another IR or the global EQ
 
-Pasting creates new stable band IDs for the destination IR. It does not copy the
-source IR identity, rack gain, delay, pan, polarity, normalization, mute, solo,
+Pasting creates new stable band IDs for the destination equalizer. It does not
+copy an IR identity, rack gain, delay, pan, polarity, normalization, mute, solo,
 or enabled state.
 
 ## Equalizer sliding pane
 
-The rack remains compact. An EQ action on an IR row opens a right-edge sliding
-pane for that slot. Only one IR equalizer is edited in the pane at a time.
+The rack remains compact. An EQ action on an IR row opens the pane for that
+slot; the rack header's Global EQ action opens the same pane for the post-mix
+target. Only one equalizer target is edited in the pane at a time.
 Parameter changes update project state and audition immediately; closing the
 pane does not discard them.
 
@@ -94,7 +97,7 @@ cancel operation because every edit has already been applied to project state.
 
 The pane contains:
 
-- The IR filename, identity color, and native WAV metadata
+- The target name, target color, and IR metadata or global post-mix description
 - Complete-EQ bypass and EQ output-gain controls
 - An interactive logarithmic-frequency response graph
 - One selected-band strip with Enabled, shape, frequency, gain when applicable,
@@ -163,7 +166,7 @@ surface driven by application snapshots and typed commands.
 
 ## Processing contract
 
-The monitoring path for each active IR is conceptually:
+The monitoring path is conceptually:
 
 ```text
 source
@@ -172,6 +175,9 @@ source
     → EQ output gain
     → delay / polarity / rack gain / pan
     → mix
+    → global ordered EQ-band cascade
+    → global EQ output gain
+    → master output gain / bypass / limiter
 ```
 
 Each channel has independent filter state. Mono and stereo IRs share the same
@@ -196,7 +202,8 @@ limiting and export clipping rules remain unchanged.
 ## Analysis and export parity
 
 Frequency, phase, and combined impulse analysis include every active per-IR EQ
-chain and its EQ output gain. Background analysis follows the existing
+chain and its EQ output gain, followed by the global EQ and its output gain.
+Background analysis follows the existing
 latest-state scheduling rule: completed graphs remain visible until the newest
 calculation replaces them.
 
@@ -209,7 +216,9 @@ native-rate source
     → per-IR normalization when enabled
     → ordered EQ-band cascade and EQ output gain
     → delay / polarity / rack gain / pan
-    → sum and existing output/export stages
+    → sum
+    → global EQ cascade and global EQ output gain
+    → existing output/export stages
 ```
 
 Coefficient generation uses the rate of the representation being processed.
@@ -225,13 +234,15 @@ EQ mix.
 
 ## Presets and plugin state
 
-Per-IR EQ bypass, output gain, ordered bands, stable band IDs, shapes, enabled
-states, and parameters are portable project state. They are saved in standalone
-presets and future plugin sessions. Missing IR files retain their EQ settings so
-the project can recover without losing edits when the file is relinked.
+Per-IR and global EQ bypass, output gain, ordered bands, stable band IDs, shapes,
+enabled states, and parameters are portable project state. They are saved in
+standalone presets and future plugin sessions. Missing IR files retain their EQ
+settings so the project can recover without losing edits when the file is
+relinked.
 
-Preset schema version 4 stores EQ state. Older presets migrate to an empty,
-enabled, unity-gain EQ chain. Plugin automation mapping for
+Preset schema version 5 stores global EQ state; version 4 already stores per-IR
+EQ state. Older presets migrate missing targets to an empty, enabled, unity-gain
+EQ chain. Plugin automation mapping for
 dynamic bands is a plugin-adapter design decision; complete session-state
 persistence is required regardless of automation exposure.
 
@@ -247,7 +258,8 @@ persistence is required regardless of automation exposure.
 - Parameter, bypass, and topology changes are free of audible discontinuities.
 - Monitoring, background analysis, and mixed export agree within documented
   floating-point and finite-tail tolerances.
-- Preset migration and round trips preserve all EQ state and missing-file slots.
+- Preset migration and round trips preserve per-IR and global EQ state and
+  missing-file slots.
 - The pane is 920 points wide when space permits and shrinks to the available
   body width at smaller supported window sizes.
 - Graph and selected-strip interaction tests cover normal drag, Shift axis lock,
@@ -259,7 +271,6 @@ persistence is required regardless of automation exposure.
 
 ## Explicit exclusions
 
-- Master or output equalization
 - IR trim, crop, fades, gates, or envelope editing
 - Automatic alignment, polarity recommendations, or fractional delay
 - Minimum-phase conversion or manual phase rotation

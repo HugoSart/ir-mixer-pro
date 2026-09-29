@@ -333,12 +333,96 @@ mod tests {
             settings(None),
         )
         .unwrap();
-        let trimmed = render_mix(
-            &[source],
-            &EqualizerState::default(),
-            settings(Some(128)),
+        let trimmed =
+            render_mix(&[source], &EqualizerState::default(), settings(Some(128))).unwrap();
+        assert!(natural.frame_count() > impulse.frame_count());
+        assert_eq!(trimmed.frame_count(), 128);
+    }
+
+    #[test]
+    fn global_equalizer_applies_after_the_mix_and_bypass_ignores_its_gain() {
+        let impulse = AudioBuffer::mono(SampleRate(48_000), vec![1.0]);
+        let per_ir_equalizer = EqualizerState::default();
+        let source = MixSource {
+            audio: &impulse,
+            enabled: true,
+            muted: false,
+            soloed: false,
+            gain_db: 0.0,
+            delay_samples: 0,
+            pan: 0.0,
+            polarity_inverted: false,
+            normalize: false,
+            equalizer: &per_ir_equalizer,
+        };
+        let settings = RenderSettings {
+            sample_rate: SampleRate(48_000),
+            frames: Some(1),
+            channels: ExportChannels::Mono,
+            output_gain_db: 0.0,
+            normalize: false,
+            normalization_target_dbfs: -1.0,
+        };
+        let mut global_equalizer = EqualizerState {
+            bypassed: false,
+            output_gain_db: -6.0,
+            bands: Vec::new(),
+        };
+
+        let equalized =
+            render_mix(std::slice::from_ref(&source), &global_equalizer, settings).unwrap();
+        assert!((equalized.channel(0)[0] - db_to_gain(-6.0)).abs() < 1.0e-6);
+
+        global_equalizer.bypassed = true;
+        let bypassed = render_mix(&[source], &global_equalizer, settings).unwrap();
+        assert!((bypassed.channel(0)[0] - 1.0).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn global_equalizer_tail_is_included_before_final_trim() {
+        let impulse = AudioBuffer::mono(SampleRate(48_000), vec![1.0]);
+        let per_ir_equalizer = EqualizerState::default();
+        let global_equalizer = EqualizerState {
+            bypassed: false,
+            output_gain_db: 0.0,
+            bands: vec![ir_eq::EqBand {
+                id: ir_eq::EqBandId(1),
+                enabled: true,
+                shape: ir_eq::EqShape::LowPass,
+                frequency_hz: 1_000.0,
+                gain_db: 0.0,
+                q: 1.0,
+            }],
+        };
+        let source = MixSource {
+            audio: &impulse,
+            enabled: true,
+            muted: false,
+            soloed: false,
+            gain_db: 0.0,
+            delay_samples: 0,
+            pan: 0.0,
+            polarity_inverted: false,
+            normalize: false,
+            equalizer: &per_ir_equalizer,
+        };
+        let settings = |frames| RenderSettings {
+            sample_rate: SampleRate(48_000),
+            frames,
+            channels: ExportChannels::Mono,
+            output_gain_db: 0.0,
+            normalize: false,
+            normalization_target_dbfs: -1.0,
+        };
+
+        let natural = render_mix(
+            std::slice::from_ref(&source),
+            &global_equalizer,
+            settings(None),
         )
         .unwrap();
+        let trimmed = render_mix(&[source], &global_equalizer, settings(Some(128))).unwrap();
+
         assert!(natural.frame_count() > impulse.frame_count());
         assert_eq!(trimmed.frame_count(), 128);
     }

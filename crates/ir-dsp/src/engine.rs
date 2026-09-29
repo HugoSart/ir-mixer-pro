@@ -476,30 +476,25 @@ impl DspEngine {
                 .global_equalizer
                 .processor
                 .process_stereo(mixed_left, mixed_right);
-            let (eq_left, eq_right) =
-                if let Some(previous) = &mut self.previous_global_equalizer {
-                    let (old_left, old_right) = previous
-                        .processor
-                        .process_stereo(mixed_left, mixed_right);
-                    let t = (self.global_eq_fade_position as f32
-                        / self.global_eq_fade_duration as f32)
-                        .clamp(0.0, 1.0);
-                    if self.global_eq_fade_position < self.global_eq_fade_duration {
-                        self.global_eq_fade_position += 1;
-                    }
-                    (
-                        old_left + (eq_left - old_left) * t,
-                        old_right + (eq_right - old_right) * t,
-                    )
-                } else {
-                    (eq_left, eq_right)
-                };
+            let (eq_left, eq_right) = if let Some(previous) = &mut self.previous_global_equalizer {
+                let (old_left, old_right) =
+                    previous.processor.process_stereo(mixed_left, mixed_right);
+                let t = (self.global_eq_fade_position as f32 / self.global_eq_fade_duration as f32)
+                    .clamp(0.0, 1.0);
+                if self.global_eq_fade_position < self.global_eq_fade_duration {
+                    self.global_eq_fade_position += 1;
+                }
+                (
+                    old_left + (eq_left - old_left) * t,
+                    old_right + (eq_right - old_right) * t,
+                )
+            } else {
+                (eq_left, eq_right)
+            };
             let eq_gain = self.global_eq_output_gain.next();
             let eq_bypass = self.global_eq_bypass_mix.next();
-            let wet_left =
-                eq_left * eq_gain + (mixed_left - eq_left * eq_gain) * eq_bypass;
-            let wet_right =
-                eq_right * eq_gain + (mixed_right - eq_right * eq_gain) * eq_bypass;
+            let wet_left = eq_left * eq_gain + (mixed_left - eq_left * eq_gain) * eq_bypass;
+            let wet_right = eq_right * eq_gain + (mixed_right - eq_right * eq_gain) * eq_bypass;
             let gain = self.output_gain.next();
             let dry = self.bypass_mix.next();
             let wet_left = wet_left * gain;
@@ -796,5 +791,52 @@ mod tests {
         assert_eq!(operations, 0, "EQ transition performed heap operations");
         assert!(retired.is_some());
         assert!(left.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn global_equalizer_transition_is_finite_allocation_free_and_retired() {
+        let config = EngineConfig {
+            block_size: 64,
+            smoothing_ms: 1.0,
+            limiter_lookahead_ms: 0.01,
+            ..EngineConfig::default()
+        };
+        let ir = AudioBuffer::mono(SampleRate(48_000), vec![1.0]);
+        let mut engine = DspEngine::new(config);
+        engine
+            .add_slot(PreparedSlot::new(1, &ir, config, SlotParameters::default()).unwrap())
+            .unwrap();
+        engine.set_limiter_enabled(false);
+        let state = EqualizerState {
+            bypassed: false,
+            output_gain_db: -2.0,
+            bands: vec![ir_eq::EqBand {
+                id: ir_eq::EqBandId(1),
+                enabled: true,
+                shape: ir_eq::EqShape::HighShelf,
+                frequency_hz: 3_000.0,
+                gain_db: 5.0,
+                q: 0.8,
+            }],
+        };
+        let replacement = Box::new(PreparedEqualizer::new(&state, config.sample_rate).unwrap());
+        assert!(engine.replace_global_equalizer(replacement).is_none());
+        let input = [0.1; 64];
+        let mut left = [0.0; 64];
+        let mut right = [0.0; 64];
+
+        crate::test_alloc::start();
+        engine
+            .process(&input, &input, &mut left, &mut right)
+            .unwrap();
+        let retired = engine.take_retired_equalizer();
+        let operations = crate::test_alloc::stop();
+
+        assert_eq!(
+            operations, 0,
+            "global EQ transition performed heap operations"
+        );
+        assert!(retired.is_some());
+        assert!(left.iter().chain(&right).all(|sample| sample.is_finite()));
     }
 }

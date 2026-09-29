@@ -1,12 +1,14 @@
 use egui_kittest::{Harness, SnapshotResults, kittest::Queryable as _};
-use ir_app::{AppCommand, AppSnapshot, AudioBackend, FrontendMode, MockAudioBackend};
+use ir_app::{
+    AppCommand, AppSnapshot, AudioBackend, EqualizerTarget, FrontendMode, MockAudioBackend,
+};
 use ir_ui::app::AppPage;
 
 struct PageState {
     snapshot: AppSnapshot,
     mode: FrontendMode,
     initialized: bool,
-    open_equalizer: bool,
+    open_equalizer: Option<EqualizerTarget>,
     commands: Vec<AppCommand>,
 }
 
@@ -33,11 +35,11 @@ fn page_harness_with_snapshot(
                 ui.ctx().request_repaint();
                 return;
             }
-            if state.open_equalizer {
-                if let Some(slot) = state.snapshot.project.ir_slots.first() {
-                    ir_ui::app::open_equalizer_pane(ui.ctx(), slot.id);
+            if let Some(target) = state.open_equalizer.take() {
+                match target {
+                    EqualizerTarget::Global => ir_ui::app::open_global_equalizer_pane(ui.ctx()),
+                    EqualizerTarget::Ir(ir_id) => ir_ui::app::open_equalizer_pane(ui.ctx(), ir_id),
                 }
-                state.open_equalizer = false;
             }
             state.commands.extend(
                 AppPage::new(&state.snapshot)
@@ -49,7 +51,7 @@ fn page_harness_with_snapshot(
             snapshot,
             mode,
             initialized: false,
-            open_equalizer: false,
+            open_equalizer: None,
             commands: Vec::new(),
         },
     )
@@ -64,12 +66,32 @@ fn equalizer_pane_renders_the_graph_and_selected_band_contract() {
         FrontendMode::Standalone,
         snapshot,
     );
-    harness.state_mut().open_equalizer = true;
+    let ir_id = harness.state().snapshot.project.ir_slots[0].id;
+    harness.state_mut().open_equalizer = Some(EqualizerTarget::Ir(ir_id));
     harness.run();
     harness.get_by_label("Bypass EQ");
     harness.get_by_label("Copy");
     harness.get_by_label("Reset all");
     harness.snapshot("equalizer_pane_wide");
+}
+
+#[test]
+fn global_equalizer_pane_renders_the_shared_editor_contract() {
+    let backend = MockAudioBackend::default();
+    let snapshot = backend.snapshot().clone();
+    let mut harness = page_harness_with_snapshot(
+        egui::vec2(1536.0, 1024.0),
+        FrontendMode::Standalone,
+        snapshot,
+    );
+    harness.get_by_label("Global EQ").click();
+    harness.run();
+    harness.get_by_label("Bypass EQ");
+    harness.get_by_label("Copy");
+    harness.get_by_label("Reset all");
+    harness.event(egui::Event::PointerGone);
+    harness.run();
+    harness.snapshot("global_equalizer_pane_wide");
 }
 
 #[test]
@@ -81,7 +103,8 @@ fn equalizer_nodes_handle_wheel_q_and_shift_wheel_gain() {
         FrontendMode::Standalone,
         snapshot,
     );
-    harness.state_mut().open_equalizer = true;
+    let ir_id = harness.state().snapshot.project.ir_slots[0].id;
+    harness.state_mut().open_equalizer = Some(EqualizerTarget::Ir(ir_id));
     harness.run();
 
     let graph_rect = harness.get_by_label("Equalizer response graph").rect();
@@ -129,7 +152,7 @@ fn equalizer_nodes_handle_wheel_q_and_shift_wheel_gain() {
     harness.run();
     assert!(harness.state().commands.iter().any(|command| matches!(
         command,
-        AppCommand::SetEqBandQ(ir_id, band_id, q)
+        AppCommand::SetEqBandQ(EqualizerTarget::Ir(ir_id), band_id, q)
             if *ir_id == slot_id && *band_id == high_pass_id && *q > high_pass_q
     )));
 
@@ -152,7 +175,7 @@ fn equalizer_nodes_handle_wheel_q_and_shift_wheel_gain() {
     harness.run();
     assert!(harness.state().commands.iter().any(|command| matches!(
         command,
-        AppCommand::SetEqBandGain(ir_id, band_id, gain)
+        AppCommand::SetEqBandGain(EqualizerTarget::Ir(ir_id), band_id, gain)
             if *ir_id == slot_id && *band_id == bell_id && *gain > bell_gain
     )));
 }

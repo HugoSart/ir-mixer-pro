@@ -340,9 +340,7 @@ impl NativeAudioBackend {
                 } else {
                     let next = self
                         .equalizer(target)
-                        .and_then(|equalizer| {
-                            equalizer.bands.iter().map(|band| band.id.0).max()
-                        })
+                        .and_then(|equalizer| equalizer.bands.iter().map(|band| band.id.0).max())
                         .unwrap_or(0)
                         + 1;
                     self.update_equalizer(target, |equalizer| {
@@ -383,9 +381,7 @@ impl NativeAudioBackend {
                 self.update_equalizer(target, |equalizer| equalizer.output_gain_db = value)
             }
             ResetEq(target) => {
-                self.update_equalizer(target, |equalizer| {
-                    *equalizer = EqualizerState::default()
-                });
+                self.update_equalizer(target, |equalizer| *equalizer = EqualizerState::default());
                 self.snapshot.selected_eq = None;
             }
             CopyEq(target) => {
@@ -937,9 +933,9 @@ impl NativeAudioBackend {
         if let Some(state) = state {
             match PreparedEqualizer::new(&state, self.engine_config().sample_rate) {
                 Ok(equalizer) => match target {
-                    EqualizerTarget::Global => self.send(
-                        RuntimeCommand::ReplaceGlobalEqualizer(Box::new(equalizer)),
-                    ),
+                    EqualizerTarget::Global => {
+                        self.send(RuntimeCommand::ReplaceGlobalEqualizer(Box::new(equalizer)))
+                    }
                     EqualizerTarget::Ir(id) => self.send(RuntimeCommand::ReplaceSlotEqualizer(
                         id.0,
                         Box::new(equalizer),
@@ -966,9 +962,7 @@ impl NativeAudioBackend {
     fn install_global_equalizer(&mut self) {
         let state = self.snapshot.project.global_equalizer.clone();
         match PreparedEqualizer::new(&state, self.engine_config().sample_rate) {
-            Ok(equalizer) => {
-                self.send(RuntimeCommand::ReplaceGlobalEqualizer(Box::new(equalizer)))
-            }
+            Ok(equalizer) => self.send(RuntimeCommand::ReplaceGlobalEqualizer(Box::new(equalizer))),
             Err(error) => self.fail(error.to_string()),
         }
     }
@@ -1941,6 +1935,32 @@ mod tests {
     }
 
     #[test]
+    fn global_equalizer_changes_are_reflected_in_background_analysis() {
+        let mut backend = NativeAudioBackend::default();
+        backend.load_ir_path(fixture("samples/irs/01_Twin73_dome_edge_L19.wav"));
+        wait_until(&mut backend, |snapshot| {
+            !snapshot.combined_waveform.is_empty()
+        });
+        let initial_waveform = backend.snapshot.combined_waveform.clone();
+
+        backend.dispatch(AppCommand::AddEqBand(EqualizerTarget::Global, 1_000.0, 6.0));
+        backend.dispatch(AppCommand::SetEqOutputGainDb(EqualizerTarget::Global, -3.0));
+        let started = Instant::now();
+        while backend.analysis_in_flight || backend.analysis_dirty {
+            backend.update(started.elapsed().as_secs_f64());
+            assert!(started.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(backend.snapshot.project.global_equalizer.bands.len(), 1);
+        assert_eq!(
+            backend.snapshot.project.global_equalizer.output_gain_db,
+            -3.0
+        );
+        assert_ne!(backend.snapshot.combined_waveform, initial_waveform);
+    }
+
+    #[test]
     fn only_mix_affecting_commands_invalidate_analysis() {
         assert!(command_changes_analysis(&AppCommand::SetIrGainDb(
             IrId(1),
@@ -1951,6 +1971,15 @@ mod tests {
             0.5
         )));
         assert!(command_changes_analysis(&AppCommand::SetOutputGainDb(-2.0)));
+        assert!(command_changes_analysis(&AppCommand::AddEqBand(
+            EqualizerTarget::Global,
+            1_000.0,
+            3.0
+        )));
+        assert!(command_changes_analysis(&AppCommand::SetEqBypassed(
+            EqualizerTarget::Global,
+            true
+        )));
         assert!(!command_changes_analysis(&AppCommand::PlayPreview));
         assert!(!command_changes_analysis(&AppCommand::SetAnalysisTab(
             ir_app::AnalysisTab::Phase

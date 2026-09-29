@@ -230,11 +230,9 @@ fn handle(request: WorkerRequest, results: &Sender<WorkerResult>) {
             let mut frequency = Vec::new();
             let mut phase = Vec::new();
             for source in &sources {
-                if let Ok(audio) = render_sources(
-                    std::slice::from_ref(source),
-                    &global_equalizer,
-                    settings,
-                ) {
+                if let Ok(audio) =
+                    render_sources(std::slice::from_ref(source), &global_equalizer, settings)
+                {
                     let analysis = analyze_frequency_response(&audio, 180);
                     frequency.push(AnalysisTrace {
                         label: source.label.clone(),
