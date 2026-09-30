@@ -1770,12 +1770,52 @@ fn discover_presets() -> (Vec<Choice>, HashMap<OptionId, PathBuf>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{Duration, Instant},
+    };
 
-    fn fixture(relative: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join(relative)
+    static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(1);
+
+    struct TestWav(PathBuf);
+
+    impl TestWav {
+        fn impulse(label: &str) -> Self {
+            let mut samples = vec![0.0; 256];
+            samples[0] = 0.8;
+            samples[7] = -0.25;
+            Self::write(label, samples)
+        }
+
+        fn preview(label: &str) -> Self {
+            let samples = (0..4_096)
+                .map(|frame| {
+                    let phase = frame as f32 * 220.0 * std::f32::consts::TAU / 48_000.0;
+                    phase.sin() * 0.25
+                })
+                .collect();
+            Self::write(label, samples)
+        }
+
+        fn write(label: &str, samples: Vec<f32>) -> Self {
+            let id = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("ir-mixer-{label}-{}-{id}.wav", std::process::id()));
+            let audio = ir_core::AudioBuffer::mono(ir_core::SampleRate(48_000), samples);
+            ir_core::write_wav(&path, &audio, ir_core::WavEncoding::Float32)
+                .expect("test WAV should be writable");
+            Self(path)
+        }
+
+        fn path(&self) -> PathBuf {
+            self.0.clone()
+        }
+    }
+
+    impl Drop for TestWav {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 
     fn wait_until(backend: &mut NativeAudioBackend, condition: impl Fn(&AppSnapshot) -> bool) {
@@ -1793,8 +1833,9 @@ mod tests {
 
     #[test]
     fn loads_real_ir_and_computes_analysis() {
+        let ir = TestWav::impulse("load-ir");
         let mut backend = NativeAudioBackend::default();
-        backend.load_ir_path(fixture("samples/irs/01_Twin73_dome_edge_L19.wav"));
+        backend.load_ir_path(ir.path());
         assert!(backend.snapshot.file_load_activity.adding_irs());
         wait_until(&mut backend, |snapshot| {
             snapshot
@@ -1819,15 +1860,17 @@ mod tests {
 
     #[test]
     fn decodes_preview_and_exports_mixed_ir() {
+        let preview = TestWav::preview("preview");
+        let ir = TestWav::impulse("export-ir");
         let mut backend = NativeAudioBackend::default();
-        backend.load_preview_path(fixture("samples/input/90_Em_GuitarLoop_SP_140_03.wav"));
+        backend.load_preview_path(preview.path());
         assert!(backend.snapshot.file_load_activity.preview_loading);
         wait_until(&mut backend, |snapshot| {
             snapshot.project.source.filename.is_some()
                 && matches!(snapshot.project.source.content_state, ContentState::Ready)
         });
         assert!(!backend.snapshot.file_load_activity.preview_loading);
-        backend.load_ir_path(fixture("samples/irs/02_Twin73_dome_edge_e609.wav"));
+        backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             snapshot
                 .project
@@ -1859,8 +1902,9 @@ mod tests {
 
     #[test]
     fn choosing_a_destination_from_export_continues_the_export_and_adds_wav_extension() {
+        let ir = TestWav::impulse("dialog-export-ir");
         let mut backend = NativeAudioBackend::default();
-        backend.load_ir_path(fixture("samples/irs/02_Twin73_dome_edge_e609.wav"));
+        backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             snapshot
                 .project
@@ -1896,8 +1940,9 @@ mod tests {
 
     #[test]
     fn rapid_ir_tweaks_keep_analysis_visible_and_bound_work() {
+        let ir = TestWav::impulse("rapid-analysis-ir");
         let mut backend = NativeAudioBackend::default();
-        let id = backend.load_ir_path(fixture("samples/irs/01_Twin73_dome_edge_L19.wav"));
+        let id = backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             !snapshot.combined_waveform.is_empty()
         });
@@ -1936,8 +1981,9 @@ mod tests {
 
     #[test]
     fn global_equalizer_changes_are_reflected_in_background_analysis() {
+        let ir = TestWav::impulse("global-eq-ir");
         let mut backend = NativeAudioBackend::default();
-        backend.load_ir_path(fixture("samples/irs/01_Twin73_dome_edge_L19.wav"));
+        backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             !snapshot.combined_waveform.is_empty()
         });

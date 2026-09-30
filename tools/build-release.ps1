@@ -38,7 +38,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot "target\release\ir-mixer-pro.exe") -Destination (Join-Path $staging "IR Mixer Pro.exe")
     Copy-Item -LiteralPath (Join-Path $repoRoot "README.md") -Destination $staging
     $license = Join-Path $repoRoot "LICENSE"
-    if (Test-Path -LiteralPath $license) { Copy-Item -LiteralPath $license -Destination $staging }
+    if (-not (Test-Path -LiteralPath $license)) { throw "LICENSE is required for release packaging." }
+    Copy-Item -LiteralPath $license -Destination $staging
 
     Compress-Archive -LiteralPath $staging -DestinationPath $archive -CompressionLevel Optimal
     $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()

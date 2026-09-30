@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "da52224c0f72616e998428affdfffcceb45337ad",
+  "draft": true,
+  "force-tag-creation": true,
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "component": "ir-mixer-pro",
+      "package-name": "ir-mixer-pro",
+      "release-type": "rust"
+    }
+  }
+}

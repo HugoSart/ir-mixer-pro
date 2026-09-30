@@ -49,6 +49,10 @@ a fully green gate is listed in [roadmap.md](roadmap.md#release-hardening).
 Plugin adapters must eventually add bundle builds, host validation, and state
 round-trip tests to this gate.
 
+The `CI / Quality` GitHub Actions check runs this complete gate on Windows for
+every pull request targeting `main`. The protected branch requires that check
+before merge.
+
 ## Current standalone package
 
 From the repository root:
@@ -63,7 +67,7 @@ the full workspace test suite. It then:
 1. Builds `ir-mixer-pro` in release mode with the lockfile.
 2. Reads the package version from Cargo metadata.
 3. Copies the executable as `IR Mixer Pro.exe` into a staging directory.
-4. Adds `README.md` and `LICENSE` when a license file exists.
+4. Adds `README.md` and the required `LICENSE` file.
 5. Creates a versioned Windows x64 ZIP under `dist\`.
 6. Writes a lowercase SHA-256 checksum beside the archive.
 
@@ -103,10 +107,36 @@ contains no fixed product version. Before producing artifacts:
 Preset schema versions are independent of package versions and must not be
 changed merely because a release number changes.
 
+## Automated releases
+
+Release Please runs after changes land on `main`. Commit messages follow the
+[Conventional Commits](https://www.conventionalcommits.org/) convention:
+
+- `fix:` contributes a patch release.
+- `feat:` contributes a minor release.
+- A breaking-change marker contributes the corresponding breaking release.
+- Documentation and maintenance commits do not create a release by themselves.
+
+The bot maintains a release pull request containing the next version and
+`CHANGELOG.md`. Its pull request is validated by the same required `CI / Quality`
+workflow. Merging that release pull request creates a draft GitHub release and
+tag, runs `tools/build-release.ps1` on the exact tagged revision, and uploads:
+
+```text
+IR-Mixer-Pro-<version>-windows-x64.zip
+IR-Mixer-Pro-<version>-windows-x64.zip.sha256
+```
+
+The workflow publishes the release only after both assets upload successfully.
+A packaging failure leaves the release in draft state for diagnosis. Version
+`0.1.0` is the automation baseline; the next releasable conventional commit
+selects the first published version.
+
 ## Signing
 
-Unsigned executables and plugin bundles may trigger reputation or security
-warnings. Sign every binary artifact before final archives are created. With
+Current automated archives are unsigned and may trigger reputation or security
+warnings. Before a production release, sign every binary artifact before final
+archives are created. With
 `signtool.exe` from the Windows SDK:
 
 ```powershell
@@ -163,9 +193,9 @@ hosts:
 
 ## Distribution
 
-The current ZIP has no installer. A public distribution decision must cover:
+The current ZIP has no installer and is distributed under GPL-3.0-or-later. A
+future installer decision must cover:
 
-- Repository and binary license
 - Install locations for standalone, VST3, and CLAP artifacts
 - Start Menu and uninstall behavior
 - Upgrade handling and optional file associations

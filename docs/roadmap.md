@@ -57,10 +57,11 @@ These adapters are required to complete the multi-format first release:
 - Derive the displayed application version from package/build metadata instead
   of the current hardcoded UI label.
 - Keep formatting and strict workspace Clippy checks clean as features evolve.
-- Add CI for formatting, Clippy, tests, release compilation, and artifact checks.
-- Choose and add the repository/distribution license before public packaging.
-- Extend release tooling to package and checksum standalone, VST3, and CLAP
-  artifacts as one release set.
+- CI now enforces formatting, strict Clippy, tests, and release compilation on
+  pull requests, while Release Please builds and checksums the Windows standalone
+  archive. Extend that automation to package VST3 and CLAP bundles as one release
+  set when their adapters exist.
+- The repository and current standalone package use GPL-3.0-or-later.
 - Decide whether Settings is required for first release; implement it or remove
   the inactive top-bar action.
 - Resolve the current “Spectrogram” label: rename it to Spectrum for the existing

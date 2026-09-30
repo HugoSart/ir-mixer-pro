@@ -56,6 +56,18 @@ not already passed for the same revision.
 
 Current release-hardening work is tracked in [roadmap.md](roadmap.md).
 
+## Pull requests and commits
+
+All pull requests target `main`. GitHub requires the Windows `CI / Quality`
+check, which runs the same formatting, Clippy, test, and locked release-build
+gate documented above.
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) so release-please
+can maintain the changelog and semantic version. Use `fix:` for user-visible bug
+fixes, `feat:` for features, and an explicit breaking-change marker when an
+incompatible change is intentional. Release Please opens a release pull request;
+merging that pull request is the maintainer's release approval.
+
 ## Test organization
 
 - Pure state and preset migrations: `ir-app`
@@ -153,5 +165,7 @@ the implementation change is intentional; otherwise fix the rendering change.
   authoritative for builds.
 - Product requirements, current architecture, design contracts, and roadmap
   work must remain visibly distinct.
+- Do not commit third-party preview or IR audio. Tests generate deterministic
+  WAV fixtures in the system temporary directory.
 - The current application screenshot and reviewed `ir-ui` snapshots describe
   implemented visuals. Historical mockups remain references, not current truth.

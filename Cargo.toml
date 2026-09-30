@@ -3,6 +3,9 @@ name = "ir-mixer-pro"
 version = "0.1.0"
 edition = "2024"
 build = "build.rs"
+description = "Load, blend, monitor, analyze, and export guitar cabinet impulse responses"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/HugoSart/ir-mixer-pro"
 
 [dependencies]
 egui.workspace = true
