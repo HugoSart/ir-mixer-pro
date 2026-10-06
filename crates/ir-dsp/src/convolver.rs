@@ -138,9 +138,9 @@ mod tests {
         let mut convolver = PartitionedConvolver::new(&ir, 4).unwrap();
         let mut actual = vec![0.0; input.len() + 8];
         for (block, destination) in input
-            .chunks_exact(4)
+            .chunks(4)
             .chain(std::iter::repeat_n(&[0.0; 4][..], 2))
-            .zip(actual.chunks_exact_mut(4))
+            .zip(actual.chunks_mut(4))
         {
             convolver.process_block(block, destination).unwrap();
         }
