@@ -48,9 +48,14 @@ pub struct NativeAudioBackend {
 
 impl Default for NativeAudioBackend {
     fn default() -> Self {
+        Self::with_device_catalog(DeviceCatalog::enumerate())
+    }
+}
+
+impl NativeAudioBackend {
+    fn with_device_catalog(catalog: DeviceCatalog) -> Self {
         let mock = MockAudioBackend::default();
         let mut snapshot = mock.snapshot().clone();
-        let catalog = DeviceCatalog::enumerate();
         snapshot.project.ir_slots.clear();
         snapshot.project.selected_ir = None;
         snapshot.project.name = "Untitled Mix".into();
@@ -1777,6 +1782,35 @@ mod tests {
 
     static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(1);
 
+    // Backend state and worker tests must not depend on the runner's audio
+    // service, device drivers, or concurrent WASAPI enumeration.
+    fn test_backend() -> NativeAudioBackend {
+        NativeAudioBackend::with_device_catalog(DeviceCatalog {
+            inputs: Vec::new(),
+            outputs: vec![crate::runtime::DeviceInfo {
+                id: "test-output".into(),
+                name: "Test output".into(),
+                channels: 2,
+                default_sample_rate: 48_000,
+            }],
+            default_input_id: None,
+            default_output_id: Some("test-output".into()),
+        })
+    }
+
+    #[test]
+    fn backend_initializes_without_audio_devices() {
+        let backend = NativeAudioBackend::with_device_catalog(DeviceCatalog::default());
+        assert!(backend.snapshot.input_devices.is_empty());
+        assert!(backend.snapshot.output_devices.is_empty());
+        assert!(backend.snapshot.status_is_error);
+        assert_eq!(
+            backend.snapshot.status,
+            "No compatible output devices found"
+        );
+        assert!(backend.runtime.is_none());
+    }
+
     struct TestWav(PathBuf);
 
     impl TestWav {
@@ -1834,7 +1868,7 @@ mod tests {
     #[test]
     fn loads_real_ir_and_computes_analysis() {
         let ir = TestWav::impulse("load-ir");
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         backend.load_ir_path(ir.path());
         assert!(backend.snapshot.file_load_activity.adding_irs());
         wait_until(&mut backend, |snapshot| {
@@ -1862,7 +1896,7 @@ mod tests {
     fn decodes_preview_and_exports_mixed_ir() {
         let preview = TestWav::preview("preview");
         let ir = TestWav::impulse("export-ir");
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         backend.load_preview_path(preview.path());
         assert!(backend.snapshot.file_load_activity.preview_loading);
         wait_until(&mut backend, |snapshot| {
@@ -1903,7 +1937,7 @@ mod tests {
     #[test]
     fn choosing_a_destination_from_export_continues_the_export_and_adds_wav_extension() {
         let ir = TestWav::impulse("dialog-export-ir");
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             snapshot
@@ -1941,7 +1975,7 @@ mod tests {
     #[test]
     fn rapid_ir_tweaks_keep_analysis_visible_and_bound_work() {
         let ir = TestWav::impulse("rapid-analysis-ir");
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         let id = backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             !snapshot.combined_waveform.is_empty()
@@ -1982,7 +2016,7 @@ mod tests {
     #[test]
     fn global_equalizer_changes_are_reflected_in_background_analysis() {
         let ir = TestWav::impulse("global-eq-ir");
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         backend.load_ir_path(ir.path());
         wait_until(&mut backend, |snapshot| {
             !snapshot.combined_waveform.is_empty()
@@ -2044,7 +2078,7 @@ mod tests {
 
     #[test]
     fn export_sources_keep_each_ir_at_its_native_rate() {
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         let low_rate_id = IrId(1);
         let high_rate_id = IrId(2);
         backend
@@ -2129,7 +2163,7 @@ mod tests {
                 default_input_id: None,
                 default_output_id: Some("test-output".into()),
             },
-            ..Default::default()
+            ..test_backend()
         };
         backend.snapshot.project.output.device = OptionId("test-output".into());
         backend
@@ -2150,7 +2184,7 @@ mod tests {
 
     #[test]
     fn input_stream_is_requested_only_for_live_monitoring() {
-        let mut backend = NativeAudioBackend::default();
+        let mut backend = test_backend();
         backend.snapshot.project.source.monitoring = true;
         backend.snapshot.project.source.mode = SourceMode::Preview;
         assert!(!backend.runtime_config().live_input_enabled);
